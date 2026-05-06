@@ -1,0 +1,22 @@
+{% extends 'elections/base.html' %}
+{% load static %}
+
+{% block title %}Strona główna{% endblock %}
+
+{% block content %}
+    <h2>System wyborczy</h2>
+
+    <img src="{% static 'elections/images/home.png' %}" alt="System wyborczy" class="page-banner">
+
+    <p>Witaj na stronie głównej aplikacji.</p>
+
+    <h3>Dostępne sekcje:</h3>
+    <ul>
+        <li><a href="{% url 'candidates_list' %}">Kandydaci</a></li>
+        <li><a href="{% url 'candidate_create' %}">Dodaj kandydata</a></li>
+        <li><a href="{% url 'committees_list' %}">Komitety wyborcze</a></li>
+        <li><a href="{% url 'elections_list' %}">Wybory</a></li>
+        <li><a href="{% url 'election_create' %}">Dodaj wybory</a></li>
+        <li><a href="{% url 'results_list' %}">Wyniki głosowania</a></li>
+    </ul>
+{% endblock %}

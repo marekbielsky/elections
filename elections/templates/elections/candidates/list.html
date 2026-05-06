@@ -1,0 +1,49 @@
+{% extends 'elections/base.html' %}
+{% load static %}
+
+{% block title %}Kandydaci{% endblock %}
+
+{% block content %}
+    <h1>Lista kandydatów</h1>
+
+    <img src="{% static 'elections/images/candidates.png' %}" alt="Kandydaci" class="page-banner">
+
+    {% if candidates %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Numer kandydata</th>
+                    <th>Imię i nazwisko</th>
+                    <th>Wybory</th>
+                    <th>Zatwierdzony</th>
+                    <th>Opis kampanii</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for candidate in candidates %}
+                    <tr>
+                        <td>{{ candidate.candidate_number }}</td>
+                        <td>{{ candidate.person.first_name }} {{ candidate.person.last_name }}</td>
+                        <td>{{ candidate.election.name }}</td>
+                        <td>
+                            {% if candidate.is_approved %}
+                                Tak
+                            {% else %}
+                                Nie
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if candidate.campaign_description %}
+                                {{ candidate.campaign_description }}
+                            {% else %}
+                                Brak opisu
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Brak kandydatów w bazie danych.</p>
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends 'elections/base.html' %}
+{% load static %}
+
+{% block title %}Wybory{% endblock %}
+
+{% block content %}
+    <h1>Lista wyborów</h1>
+
+    <img src="{% static 'elections/images/elections.png' %}" alt="Wybory" class="page-banner">
+
+    {% if elections %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Nazwa</th>
+                    <th>Typ wyborów</th>
+                    <th>Status</th>
+                    <th>Jednostka organizacyjna</th>
+                    <th>Tajne</th>
+                    <th>Opis</th>
+                    <th>Data utworzenia</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for election in elections %}
+                    <tr>
+                        <td>{{ election.name }}</td>
+                        <td>{{ election.election_type.name }}</td>
+                        <td>{{ election.election_status.name }}</td>
+                        <td>
+                            {% if election.organizational_unit %}
+                                {{ election.organizational_unit.name }}
+                            {% else %}
+                                Brak
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if election.is_secret %}
+                                Tak
+                            {% else %}
+                                Nie
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if election.description %}
+                                {{ election.description }}
+                            {% else %}
+                                Brak opisu
+                            {% endif %}
+                        </td>
+                        <td>{{ election.created_at }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Brak wyborów w bazie danych.</p>
+    {% endif %}
+{% endblock %}

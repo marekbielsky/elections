@@ -1,0 +1,49 @@
+{% extends 'elections/base.html' %}
+{% load static %}
+
+{% block title %}Komitety wyborcze{% endblock %}
+
+{% block content %}
+    <h1>Lista komitetów wyborczych</h1>
+
+    <img src="{% static 'elections/images/committees.png' %}" alt="Komitety wyborcze" class="page-banner">
+
+    {% if committees %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Nazwa</th>
+                    <th>Typ jednostki</th>
+                    <th>Jednostka nadrzędna</th>
+                    <th>Aktywna</th>
+                    <th>Data utworzenia</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for committee in committees %}
+                    <tr>
+                        <td>{{ committee.name }}</td>
+                        <td>{{ committee.unit_type }}</td>
+                        <td>
+                            {% if committee.parent_unit %}
+                                {{ committee.parent_unit.name }}
+                            {% else %}
+                                Brak
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if committee.is_active %}
+                                Tak
+                            {% else %}
+                                Nie
+                            {% endif %}
+                        </td>
+                        <td>{{ committee.created_at }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Brak komitetów wyborczych w bazie danych.</p>
+    {% endif %}
+{% endblock %}

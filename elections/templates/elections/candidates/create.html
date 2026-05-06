@@ -1,0 +1,19 @@
+{% extends 'elections/base.html' %}
+
+{% block title %}Dodaj kandydata{% endblock %}
+
+{% block content %}
+    <h1>Dodaj kandydata</h1>
+
+    <p>Wypełnij formularz, aby dodać nową kandydaturę.</p>
+
+    {% if success_message %}
+        <p class="form-message form-message-success"><strong>{{ success_message }}</strong></p>
+    {% endif %}
+
+    <form method="post" class="app-form">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">Zapisz kandydata</button>
+    </form>
+{% endblock %}

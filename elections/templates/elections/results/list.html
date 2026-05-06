@@ -1,0 +1,45 @@
+{% extends 'elections/base.html' %}
+{% load static %}
+
+{% block title %}Wyniki głosowania{% endblock %}
+
+{% block content %}
+    <h1>Wyniki głosowania</h1>
+
+    <img src="{% static 'elections/images/results.png' %}" alt="Wyniki głosowania" class="page-banner">
+
+    {% if results %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Wybory</th>
+                    <th>Liczba uprawnionych</th>
+                    <th>Liczba głosujących</th>
+                    <th>Frekwencja (%)</th>
+                    <th>Wynik końcowy</th>
+                    <th>Wygenerowano</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for result in results %}
+                    <tr>
+                        <td>{{ result.election.name }}</td>
+                        <td>{{ result.eligible_voters_count }}</td>
+                        <td>{{ result.voters_count }}</td>
+                        <td>{{ result.turnout_percent }}</td>
+                        <td>
+                            {% if result.is_final %}
+                                Tak
+                            {% else %}
+                                Nie
+                            {% endif %}
+                        </td>
+                        <td>{{ result.calculated_at }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Brak wyników głosowania w bazie danych.</p>
+    {% endif %}
+{% endblock %}

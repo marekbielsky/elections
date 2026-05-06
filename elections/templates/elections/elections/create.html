@@ -1,0 +1,19 @@
+{% extends 'elections/base.html' %}
+
+{% block title %}Dodaj wybory{% endblock %}
+
+{% block content %}
+    <h1>Dodaj wybory</h1>
+
+    <p>Wypełnij formularz, aby utworzyć nowe wybory.</p>
+
+    {% if success_message %}
+        <p class="form-message form-message-success"><strong>{{ success_message }}</strong></p>
+    {% endif %}
+
+    <form method="post" class="app-form">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">Zapisz wybory</button>
+    </form>
+{% endblock %}

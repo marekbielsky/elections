@@ -1,0 +1,51 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}System wyborczy{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'elections/css/style.css' %}?v=20260425-1">
+</head>
+<body>
+    <div class="top-accent"></div>
+
+    <header class="site-header">
+        <div class="container">
+            <div class="header-row">
+                <div class="brand-section">
+                    <div class="brand-emblem">RP</div>
+                    <div class="brand-text">
+                        <p class="brand-subtitle">Portal usług administracyjnych</p>
+                        <h1 class="brand-title">System wyborczy</h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <nav class="main-nav">
+        <div class="container nav-inner">
+            <a href="{% url 'home' %}">Strona główna</a>
+            <a href="{% url 'candidates_list' %}">Kandydaci</a>
+            <a href="{% url 'candidate_create' %}">Dodaj kandydata</a>
+            <a href="{% url 'committees_list' %}">Komitety wyborcze</a>
+            <a href="{% url 'elections_list' %}">Wybory</a>
+            <a href="{% url 'election_create' %}">Dodaj wybory</a>
+            <a href="{% url 'results_list' %}">Wyniki głosowania</a>
+        </div>
+    </nav>
+
+    <main class="page-wrapper">
+        <div class="container content-card">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">
+            <p>System wyborczy — serwis informacyjny</p>
+        </div>
+    </footer>
+</body>
+</html>
