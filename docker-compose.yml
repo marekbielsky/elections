@@ -1,0 +1,15 @@
+services:
+  web:
+    build:
+      context: .
+    container_name: elections-web
+    ports:
+      - "8000:8000"
+    environment:
+      SQLITE_DB_PATH: /data/db.sqlite3
+    volumes:
+      - sqlite_data:/data
+    restart: unless-stopped
+
+volumes:
+  sqlite_data:

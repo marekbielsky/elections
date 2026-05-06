@@ -2,7 +2,7 @@ from datetime import timedelta
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 from .models import (
@@ -14,6 +14,7 @@ from .models import (
     ElectionSchedule,
     ElectionStatus,
     ElectionType,
+    Notification,
     Person,
     VotingRule,
     VotingToken,
@@ -157,3 +158,76 @@ class ElectionIntegrityAndSecurityTests(TestCase):
         self.assertNotEqual(ballot.anonymous_key, "anonymous-key-123")
         self.assertTrue(ballot.verify_anonymous_key("anonymous-key-123"))
         self.assertFalse(ballot.verify_anonymous_key("bad-key"))
+
+    def test_database_trigger_rejects_cross_election_ballot_selection(self):
+        candidate_other_election = ElectionCandidate.objects.create(
+            election=self.election2,
+            person=self.person2,
+            candidate_number=8,
+            is_approved=True,
+        )
+        token = VotingToken.objects.create(
+            election=self.election1,
+            person=self.person1,
+            token_value="raw-token-trigger",
+        )
+        ballot = Ballot.objects.create(
+            election=self.election1,
+            voting_token=token,
+            anonymous_key="anonymous-trigger-key",
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO elections_ballotselection (ballot_id, election_candidate_id, selection_order, created_at)
+                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                        """,
+                        [ballot.id, candidate_other_election.id, 1],
+                    )
+
+    def test_database_trigger_sets_used_at_when_token_marked_used(self):
+        token = VotingToken.objects.create(
+            election=self.election1,
+            person=self.person1,
+            token_value="token-set-used-at",
+        )
+        token.used_at = None
+        token.is_used = True
+        token.save(update_fields=["is_used", "used_at"])
+        token.refresh_from_db()
+        self.assertIsNotNone(token.used_at)
+
+    def test_database_trigger_sets_submitted_at_when_ballot_submitted(self):
+        token = VotingToken.objects.create(
+            election=self.election1,
+            person=self.person1,
+            token_value="token-ballot-submitted",
+        )
+        ballot = Ballot.objects.create(
+            election=self.election1,
+            voting_token=token,
+            anonymous_key="anonymous-submitted-key",
+        )
+        ballot.submitted_at = None
+        ballot.ballot_status = Ballot.BallotStatus.SUBMITTED
+        ballot.save(update_fields=["ballot_status", "submitted_at"])
+        ballot.refresh_from_db()
+        self.assertIsNotNone(ballot.submitted_at)
+
+    def test_database_trigger_sets_sent_at_for_notifications(self):
+        notification = Notification.objects.create(
+            election=self.election1,
+            recipient_person=self.person1,
+            notification_type=Notification.NotificationType.SYSTEM,
+            subject="Test",
+            content="Test notification content",
+            is_sent=False,
+        )
+        notification.sent_at = None
+        notification.is_sent = True
+        notification.save(update_fields=["is_sent", "sent_at"])
+        notification.refresh_from_db()
+        self.assertIsNotNone(notification.sent_at)
