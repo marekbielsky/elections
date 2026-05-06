@@ -12,6 +12,55 @@ docker compose run --rm web python manage.py migrate
 - Run tests:
 docker compose run --rm web python manage.py test elections
 
+## Data bootstrap and environment setup
+### Management command: `bootstrap_data`
+The project includes `python manage.py bootstrap_data` to seed reference dictionaries and optional demo data.
+
+Available modes:
+- Production-safe reference data only:
+  - `python manage.py bootstrap_data --env prod`
+- Local reference + demo records:
+  - `python manage.py bootstrap_data --env local --with-demo`
+
+Environment variables for demo credentials:
+- `BOOTSTRAP_ADMIN_PASSWORD` (default: `admin12345`)
+- `BOOTSTRAP_DEMO_PASSWORD` (default: `demo12345`)
+
+The command is idempotent (safe to run multiple times).
+
+### Setup scripts
+Two helper scripts were added in `scripts/`:
+- `scripts/setup-local.sh`
+  - runs migrations
+  - seeds local demo data
+  - runs Django checks
+- `scripts/setup-prod.sh`
+  - runs migrations
+  - seeds production-safe reference data
+  - runs Django checks
+
+Run examples:
+
+```bash
+./scripts/setup-local.sh
+./scripts/setup-prod.sh
+```
+
+If needed, override Python binary:
+
+```bash
+PYTHON_BIN=/path/to/python3 ./scripts/setup-local.sh
+```
+
+## CI for pull requests
+GitHub Actions workflow is configured in:
+- `.github/workflows/pr-ci.yml`
+
+On each PR to `main`, CI runs:
+- linting (`ruff`)
+- `python manage.py check`
+- `python manage.py test elections`
+
 ## Production deployment (Docker Compose)
 ### Deploy in production with `docker-compose.prod.yml`
 1. Clone the repository.
