@@ -1,8 +1,9 @@
 from datetime import timedelta
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
+from django.urls import reverse
 from django.utils import timezone
 
 from .models import (
@@ -16,6 +17,7 @@ from .models import (
     ElectionType,
     Notification,
     Person,
+    UserRole,
     VotingRule,
     VotingToken,
 )
@@ -231,3 +233,66 @@ class ElectionIntegrityAndSecurityTests(TestCase):
         notification.save(update_fields=["is_sent", "sent_at"])
         notification.refresh_from_db()
         self.assertIsNotNone(notification.sent_at)
+
+
+class AdminRoleMvpRoutesTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        user_model = get_user_model()
+        cls.admin_user = user_model.objects.create_user(
+            username="mvp_admin",
+            email="mvp_admin@example.com",
+            password="secret123",
+        )
+        cls.normal_user = user_model.objects.create_user(
+            username="mvp_user",
+            email="mvp_user@example.com",
+            password="secret123",
+        )
+        UserRole.objects.create(user=cls.admin_user, role=UserRole.Role.ADMIN)
+        UserRole.objects.create(user=cls.normal_user, role=UserRole.Role.USER)
+
+    def test_admin_route_is_forbidden_for_non_admin(self):
+        response = self.client.get(
+            reverse("admin_overview"),
+            HTTP_X_DEMO_USER="mvp_user",
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["current_role"], UserRole.Role.USER)
+
+    def test_admin_route_is_accessible_for_admin(self):
+        response = self.client.get(
+            reverse("admin_overview"),
+            HTTP_X_DEMO_USER="mvp_admin",
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["actor_role"], UserRole.Role.ADMIN)
+
+    def test_admin_route_accepts_role_header_for_mvp_without_auth(self):
+        response = self.client.get(
+            reverse("admin_users_roles"),
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("users", response.json())
+
+    @override_settings(
+        STORAGES={
+            "default": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+    )
+    def test_admin_route_renders_html_for_browser_requests(self):
+        response = self.client.get(
+            reverse("admin_overview"),
+            {"demo_user": "mvp_admin"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Panel administracyjny")

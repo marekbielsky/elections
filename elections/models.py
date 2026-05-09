@@ -80,6 +80,28 @@ class Person(models.Model):
     def __str__(self) -> str:
         return f"{self.first_name} {self.last_name}"
 
+class UserRole(models.Model):
+    class Role(models.TextChoices):
+        ADMIN = "ADMIN", "Admin"
+        USER = "USER", "User"
+        AUDITOR = "AUDITOR", "Auditor"
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="role_profile",
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.USER,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.user} -> {self.role}"
+
 
 class ElectionType(models.Model):
     code = models.CharField(max_length=50, unique=True)

@@ -14,6 +14,7 @@ from elections.models import (
     ElectionType,
     OrganizationalUnit,
     Person,
+    UserRole,
     VotingEligibility,
     VotingRule,
 )
@@ -118,6 +119,10 @@ class Command(BaseCommand):
         if admin_created:
             admin_user.set_password(admin_password)
             admin_user.save(update_fields=["password"])
+        UserRole.objects.update_or_create(
+            user=admin_user,
+            defaults={"role": UserRole.Role.ADMIN},
+        )
 
         voter_user, voter_created = user_model.objects.get_or_create(
             username="voter_demo",
@@ -126,12 +131,36 @@ class Command(BaseCommand):
         if voter_created:
             voter_user.set_password(demo_password)
             voter_user.save(update_fields=["password"])
+        UserRole.objects.update_or_create(
+            user=voter_user,
+            defaults={"role": UserRole.Role.USER},
+        )
         voter_person, _ = Person.objects.update_or_create(
             user=voter_user,
             defaults={
                 "first_name": "Jan",
                 "last_name": "Wyborca",
                 "student_or_employee_no": "DEMO-VOTER-001",
+                "organizational_unit": demo_unit,
+            },
+        )
+        auditor_user, auditor_created = user_model.objects.get_or_create(
+            username="auditor_demo",
+            defaults={"email": "auditor_demo@example.com", "is_active": True},
+        )
+        if auditor_created:
+            auditor_user.set_password(demo_password)
+            auditor_user.save(update_fields=["password"])
+        UserRole.objects.update_or_create(
+            user=auditor_user,
+            defaults={"role": UserRole.Role.AUDITOR},
+        )
+        Person.objects.update_or_create(
+            user=auditor_user,
+            defaults={
+                "first_name": "Ada",
+                "last_name": "Audytor",
+                "student_or_employee_no": "DEMO-AUDITOR-001",
                 "organizational_unit": demo_unit,
             },
         )

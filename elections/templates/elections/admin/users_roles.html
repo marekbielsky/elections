@@ -1,0 +1,47 @@
+{% extends 'elections/base.html' %}
+
+{% block title %}Użytkownicy i role{% endblock %}
+
+{% block content %}
+    <h1>Użytkownicy i role</h1>
+
+    <p>Lista użytkowników z przypisanymi rolami biznesowymi (MVP).</p>
+    <p>
+        <strong>Aktywna rola:</strong> {{ actor_role }}<br>
+        <strong>Źródło roli:</strong> {{ actor_source }}
+    </p>
+    <p>
+        <a href="{% url 'admin_overview' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+            Wróć do panelu administracyjnego
+        </a>
+    </p>
+
+    {% if users %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Rola</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                    <tr>
+                        <td>{{ user.username }}</td>
+                        <td>
+                            {% if user.email %}
+                                {{ user.email }}
+                            {% else %}
+                                Brak
+                            {% endif %}
+                        </td>
+                        <td>{{ user.role }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Brak użytkowników z przypisaną rolą.</p>
+    {% endif %}
+{% endblock %}
