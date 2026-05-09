@@ -20,19 +20,19 @@ from elections.models import (
 
 
 class Command(BaseCommand):
-    help = "Bootstrap reference and optional demo data for local or production environments."
+    help = "Seeduje dane referencyjne oraz opcjonalne dane demonstracyjne dla środowiska lokalnego lub produkcyjnego."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--env",
             choices=["local", "prod"],
             default="local",
-            help="Target bootstrap environment. Use local for demo data and prod for safe reference data only.",
+            help="Docelowe środowisko seeda. Użyj local dla danych demo i prod dla bezpiecznych danych referencyjnych.",
         )
         parser.add_argument(
             "--with-demo",
             action="store_true",
-            help="When used with --env local, creates demo users and election records.",
+            help="W połączeniu z --env local tworzy użytkowników demo i przykładowe głosowania.",
         )
 
     @transaction.atomic
@@ -40,32 +40,47 @@ class Command(BaseCommand):
         target_env = options["env"]
         with_demo = options["with_demo"]
 
-        self.stdout.write(self.style.NOTICE(f"Bootstrapping data for env: {target_env}"))
+        self.stdout.write(self.style.NOTICE(f"Seedowanie danych dla środowiska: {target_env}"))
         self._seed_reference_data()
 
         if target_env == "local" and with_demo:
             self._seed_local_demo_data()
-            self.stdout.write(self.style.SUCCESS("Demo data seeded for local environment."))
+            self.stdout.write(self.style.SUCCESS("Dane demonstracyjne zostały zseedowane dla środowiska lokalnego."))
         elif target_env == "local":
-            self.stdout.write(self.style.WARNING("Local mode without --with-demo: only reference data created."))
+            self.stdout.write(self.style.WARNING("Tryb local bez --with-demo: utworzono tylko dane referencyjne."))
         else:
-            self.stdout.write(self.style.SUCCESS("Production-safe reference data seeded."))
+            self.stdout.write(self.style.SUCCESS("Zseedowano bezpieczne dane referencyjne dla produkcji."))
 
     def _seed_reference_data(self):
         election_types = [
-            ("STUDENT_COUNCIL", "Student Council", "Elections for student council representatives."),
-            ("DEAN", "Dean", "Elections for dean position."),
-            ("CLASS_REP", "Class Representative", "Elections for class representative."),
-            ("EMPLOYEE_MONTH", "Employee of the Month", "Recognition voting in organizations."),
-            ("OTHER", "Other", "Other organizational voting process."),
+            ("STUDENT_COUNCIL", "Samorząd studencki", "Wybory przedstawicieli samorządu studenckiego."),
+            ("DEAN", "Dziekan", "Wybory na stanowisko dziekana."),
+            ("CLASS_REP", "Starosta roku", "Wybory starosty roku."),
+            ("EMPLOYEE_MONTH", "Pracownik miesiąca", "Głosowanie wyróżniające pracowników w organizacji."),
+            ("OTHER", "Inne", "Inny proces głosowania organizacyjnego."),
+            (
+                "PRESIDENTIAL_RP",
+                "Wybory prezydenckie (Polska)",
+                "Powszechne wybory Prezydenta Rzeczypospolitej Polskiej.",
+            ),
+            (
+                "PARLIAMENTARY_RP",
+                "Wybory parlamentarne (Polska)",
+                "Powszechne wybory do Sejmu i Senatu Rzeczypospolitej Polskiej.",
+            ),
+            (
+                "EUROPEAN_PARLIAMENT_RP",
+                "Wybory do Parlamentu Europejskiego (Polska)",
+                "Powszechne wybory w Polsce do Parlamentu Europejskiego.",
+            ),
         ]
         election_statuses = [
-            ("DRAFT", "Draft", "Draft election prepared by administrators."),
-            ("PUBLISHED", "Published", "Election is published and visible to voters."),
-            ("IN_PROGRESS", "In progress", "Election is active and voting is open."),
-            ("CLOSED", "Closed", "Voting ended; results may still be processed."),
-            ("RESULTS_PUBLISHED", "Results published", "Results were finalized and published."),
-            ("ARCHIVED", "Archived", "Historical election archived for reference."),
+            ("DRAFT", "Szkic", "Szkic głosowania przygotowany przez administratorów."),
+            ("PUBLISHED", "Opublikowane", "Głosowanie zostało opublikowane i jest widoczne dla wyborców."),
+            ("IN_PROGRESS", "W trakcie", "Głosowanie jest aktywne i trwa oddawanie głosów."),
+            ("CLOSED", "Zamknięte", "Głosowanie zakończone; wyniki mogą być jeszcze przetwarzane."),
+            ("RESULTS_PUBLISHED", "Wyniki opublikowane", "Wyniki zostały zatwierdzone i opublikowane."),
+            ("ARCHIVED", "Zarchiwizowane", "Historyczne głosowanie zarchiwizowane do wglądu."),
         ]
 
         for code, name, description in election_types:
@@ -79,7 +94,7 @@ class Command(BaseCommand):
                 defaults={"name": name, "description": description},
             )
 
-        self.stdout.write(self.style.SUCCESS("Reference dictionaries seeded."))
+        self.stdout.write(self.style.SUCCESS("Słowniki referencyjne zostały zseedowane."))
 
     def _seed_local_demo_data(self):
         user_model = get_user_model()
@@ -87,8 +102,8 @@ class Command(BaseCommand):
         demo_password = os.getenv("BOOTSTRAP_DEMO_PASSWORD", "demo12345")
 
         demo_unit, _ = OrganizationalUnit.objects.update_or_create(
-            name="Faculty of Computer Science",
-            defaults={"unit_type": "FACULTY", "is_active": True},
+            name="Rzeczpospolita Polska",
+            defaults={"unit_type": "KRAJ", "is_active": True},
         )
 
         admin_user, admin_created = user_model.objects.get_or_create(
@@ -104,14 +119,6 @@ class Command(BaseCommand):
             admin_user.set_password(admin_password)
             admin_user.save(update_fields=["password"])
 
-        candidate_user, candidate_created = user_model.objects.get_or_create(
-            username="candidate_demo",
-            defaults={"email": "candidate_demo@example.com", "is_active": True},
-        )
-        if candidate_created:
-            candidate_user.set_password(demo_password)
-            candidate_user.save(update_fields=["password"])
-
         voter_user, voter_created = user_model.objects.get_or_create(
             username="voter_demo",
             defaults={"email": "voter_demo@example.com", "is_active": True},
@@ -119,16 +126,6 @@ class Command(BaseCommand):
         if voter_created:
             voter_user.set_password(demo_password)
             voter_user.save(update_fields=["password"])
-
-        candidate_person, _ = Person.objects.update_or_create(
-            user=candidate_user,
-            defaults={
-                "first_name": "Anna",
-                "last_name": "Kandydat",
-                "student_or_employee_no": "DEMO-CAND-001",
-                "organizational_unit": demo_unit,
-            },
-        )
         voter_person, _ = Person.objects.update_or_create(
             user=voter_user,
             defaults={
@@ -139,54 +136,140 @@ class Command(BaseCommand):
             },
         )
 
-        election_type = ElectionType.objects.get(code="STUDENT_COUNCIL")
-        election_status = ElectionStatus.objects.get(code="PUBLISHED")
-
-        demo_election, _ = Election.objects.update_or_create(
-            name="Demo Student Council Election",
-            defaults={
-                "election_type": election_type,
-                "election_status": election_status,
-                "organizational_unit": demo_unit,
-                "description": "Locally bootstrapped demo election.",
-                "is_secret": True,
-                "created_by_user": admin_user,
-            },
-        )
-
         now = timezone.now()
-        ElectionSchedule.objects.update_or_create(
-            election=demo_election,
-            defaults={
-                "start_at": now,
-                "end_at": now + timedelta(days=7),
-                "results_publish_at": now + timedelta(days=8),
+        politicians = [
+            ("donald_tusk", "Donald", "Tusk", "politician_donald_tusk@example.com", "PL-POL-001"),
+            (
+                "jaroslaw_kaczynski",
+                "Jarosław",
+                "Kaczyński",
+                "politician_jaroslaw_kaczynski@example.com",
+                "PL-POL-002",
+            ),
+            (
+                "rafal_trzaskowski",
+                "Rafał",
+                "Trzaskowski",
+                "politician_rafal_trzaskowski@example.com",
+                "PL-POL-003",
+            ),
+            ("szymon_holownia", "Szymon", "Hołownia", "politician_szymon_holownia@example.com", "PL-POL-004"),
+            (
+                "wl_kosiniak_kamysz",
+                "Władysław",
+                "Kosiniak-Kamysz",
+                "politician_wladyslaw_kosiniak_kamysz@example.com",
+                "PL-POL-005",
+            ),
+            ("robert_biedron", "Robert", "Biedroń", "politician_robert_biedron@example.com", "PL-POL-006"),
+            ("krzysztof_bosak", "Krzysztof", "Bosak", "politician_krzysztof_bosak@example.com", "PL-POL-007"),
+            ("slawomir_mentzen", "Sławomir", "Mentzen", "politician_slawomir_mentzen@example.com", "PL-POL-008"),
+            (
+                "mateusz_morawiecki",
+                "Mateusz",
+                "Morawiecki",
+                "politician_mateusz_morawiecki@example.com",
+                "PL-POL-009",
+            ),
+            ("adrian_zandberg", "Adrian", "Zandberg", "politician_adrian_zandberg@example.com", "PL-POL-010"),
+        ]
+        candidate_people = []
+        for username, first_name, last_name, email, identifier in politicians:
+            politician_user, politician_created = user_model.objects.get_or_create(
+                username=username,
+                defaults={"email": email, "is_active": True},
+            )
+            if politician_created:
+                politician_user.set_password(demo_password)
+                politician_user.save(update_fields=["password"])
+
+            person, _ = Person.objects.update_or_create(
+                user=politician_user,
+                defaults={
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "student_or_employee_no": identifier,
+                    "organizational_unit": demo_unit,
+                },
+            )
+            candidate_people.append(person)
+
+        election_status = ElectionStatus.objects.get(code="PUBLISHED")
+        elections_to_seed = [
+            {
+                "type_code": "PRESIDENTIAL_RP",
+                "name": "Wybory Prezydenta RP 2025 (demo)",
+                "description": "Demonstracyjne głosowanie oparte na realnej nazwie wyborów prezydenckich w Polsce.",
+                "start_days_offset": 0,
             },
-        )
-        VotingRule.objects.update_or_create(
-            election=demo_election,
-            defaults={
-                "min_choices": 1,
-                "max_choices": 1,
-                "allow_blank_vote": False,
-                "allow_vote_change": False,
-                "requires_turnout_threshold": False,
-                "turnout_threshold_percent": None,
+            {
+                "type_code": "PARLIAMENTARY_RP",
+                "name": "Wybory Parlamentarne RP 2023 (demo)",
+                "description": "Demonstracyjne głosowanie oparte na realnej nazwie wyborów parlamentarnych w Polsce.",
+                "start_days_offset": 21,
             },
-        )
-        ElectionCandidate.objects.update_or_create(
-            election=demo_election,
-            person=candidate_person,
-            defaults={
-                "candidate_number": 1,
-                "campaign_description": "Demo candidate profile.",
-                "is_approved": True,
-                "approved_at": now,
+            {
+                "type_code": "EUROPEAN_PARLIAMENT_RP",
+                "name": "Wybory do Parlamentu Europejskiego 2024 (demo)",
+                "description": "Demonstracyjne głosowanie oparte na realnej nazwie wyborów europejskich w Polsce.",
+                "start_days_offset": 42,
             },
-        )
-        VotingEligibility.objects.update_or_create(
-            election=demo_election,
-            person=voter_person,
-            defaults={"eligibility_status": VotingEligibility.EligibilityStatus.GRANTED},
-        )
+        ]
+
+        for election_index, election_seed in enumerate(elections_to_seed):
+            election_type = ElectionType.objects.get(code=election_seed["type_code"])
+            election, _ = Election.objects.update_or_create(
+                name=election_seed["name"],
+                defaults={
+                    "election_type": election_type,
+                    "election_status": election_status,
+                    "organizational_unit": demo_unit,
+                    "description": election_seed["description"],
+                    "is_secret": True,
+                    "created_by_user": admin_user,
+                },
+            )
+
+            start_at = now + timedelta(days=election_seed["start_days_offset"])
+            end_at = start_at + timedelta(days=14)
+            ElectionSchedule.objects.update_or_create(
+                election=election,
+                defaults={
+                    "start_at": start_at,
+                    "end_at": end_at,
+                    "results_publish_at": end_at + timedelta(days=1),
+                },
+            )
+            VotingRule.objects.update_or_create(
+                election=election,
+                defaults={
+                    "min_choices": 1,
+                    "max_choices": 1,
+                    "allow_blank_vote": False,
+                    "allow_vote_change": False,
+                    "requires_turnout_threshold": False,
+                    "turnout_threshold_percent": None,
+                },
+            )
+
+            for candidate_number, candidate_person in enumerate(candidate_people, start=1):
+                ElectionCandidate.objects.update_or_create(
+                    election=election,
+                    person=candidate_person,
+                    defaults={
+                        "candidate_number": candidate_number,
+                        "campaign_description": (
+                            f"{candidate_person.first_name} {candidate_person.last_name} "
+                            f"- kandydat demonstracyjny w głosowaniu nr {election_index + 1}."
+                        ),
+                        "is_approved": True,
+                        "approved_at": now,
+                    },
+                )
+
+            VotingEligibility.objects.update_or_create(
+                election=election,
+                person=voter_person,
+                defaults={"eligibility_status": VotingEligibility.EligibilityStatus.GRANTED},
+            )
 
