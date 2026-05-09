@@ -1,7 +1,10 @@
 from django.shortcuts import render
 from .models import OrganizationalUnit, Election, ElectionCandidate, ElectionResult
 from .forms import ElectionCreateForm, ElectionCandidateCreateForm
+from django.http import HttpResponse
 
+def healthz_view(request):
+    return HttpResponse("ok")
 
 def home_view(request):
     return render(request, "elections/home.html")
