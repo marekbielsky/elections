@@ -6,9 +6,13 @@ services:
     ports:
       - "8000:8000"
     environment:
+      DJANGO_DEBUG: "True"
       SQLITE_DB_PATH: /data/db.sqlite3
     volumes:
       - sqlite_data:/data
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
     restart: unless-stopped
 
 volumes:
