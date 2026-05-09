@@ -9,4 +9,19 @@ urlpatterns = [
     path("elections/", views.elections_list_view, name="elections_list"),
     path("elections/create/", views.election_create_view, name="election_create"),
     path("results/", views.results_list_view, name="results_list"),
+    path(
+        "management/admin/overview/",
+        views.admin_overview_view,
+        name="admin_overview",
+    ),
+    path(
+        "management/admin/users/",
+        views.admin_users_roles_view,
+        name="admin_users_roles",
+    ),
+    path(
+        "management/admin/draft-elections/",
+        views.admin_draft_elections_view,
+        name="admin_draft_elections",
+    ),
 ]

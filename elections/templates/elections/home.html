@@ -19,4 +19,16 @@
         <li><a href="{% url 'election_create' %}">Dodaj wybory</a></li>
         <li><a href="{% url 'results_list' %}">Wyniki głosowania</a></li>
     </ul>
+
+    <h3>Sekcja administracyjna (MVP):</h3>
+    <p>
+        Widoki administracyjne są dostępne tylko dla roli <strong>ADMIN</strong>.
+        W trybie MVP możesz otworzyć je w UI, dodając parametr <code>?demo_user=admin_demo</code>.
+    </p>
+    <ul>
+        <li><a href="{% url 'admin_overview' %}">Panel administracyjny</a></li>
+        <li><a href="{% url 'admin_overview' %}?demo_user=admin_demo">Panel administracyjny (demo admin)</a></li>
+        <li><a href="{% url 'admin_users_roles' %}?demo_user=admin_demo">Użytkownicy i role (demo admin)</a></li>
+        <li><a href="{% url 'admin_draft_elections' %}?demo_user=admin_demo">Wybory w szkicu (demo admin)</a></li>
+    </ul>
 {% endblock %}

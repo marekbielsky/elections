@@ -1,0 +1,55 @@
+{% extends 'elections/base.html' %}
+
+{% block title %}Panel administracyjny{% endblock %}
+
+{% block content %}
+    <h1>Panel administracyjny</h1>
+
+    <p>Podsumowanie danych systemu dostępne dla roli <strong>ADMIN</strong>.</p>
+    <p>
+        <strong>Aktywna rola:</strong> {{ actor_role }}<br>
+        <strong>Źródło roli:</strong> {{ actor_source }}
+    </p>
+
+    <h3>Szybkie przejścia:</h3>
+    <ul>
+        <li>
+            <a href="{% url 'admin_users_roles' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+                Użytkownicy i role
+            </a>
+        </li>
+        <li>
+            <a href="{% url 'admin_draft_elections' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+                Wybory w statusie szkicu
+            </a>
+        </li>
+    </ul>
+
+    <h3>Statystyki:</h3>
+    <table border="1" cellpadding="8" cellspacing="0">
+        <thead>
+            <tr>
+                <th>Metryka</th>
+                <th>Wartość</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Liczba użytkowników</td>
+                <td>{{ summary.users_count }}</td>
+            </tr>
+            <tr>
+                <td>Liczba wyborów</td>
+                <td>{{ summary.elections_count }}</td>
+            </tr>
+            <tr>
+                <td>Aktywne komitety</td>
+                <td>{{ summary.active_committees_count }}</td>
+            </tr>
+            <tr>
+                <td>Liczba kandydatów</td>
+                <td>{{ summary.candidates_count }}</td>
+            </tr>
+        </tbody>
+    </table>
+{% endblock %}
