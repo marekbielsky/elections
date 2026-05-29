@@ -1504,6 +1504,227 @@ class ElectionApiEndpointsTests(APITestCase):
         self.assertEqual(response.data["candidate_support"][0]["votes_count"], 1)
         self.assertEqual(response.data["candidate_support"][1]["candidate_id"], candidate2.id)
         self.assertEqual(response.data["candidate_support"][1]["votes_count"], 0)
+    def test_analytics_api_aggregation_is_consistent_across_sections(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Aggregation Consistency Election",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=3),
+            end_at=now + timedelta(hours=2),
+            created_by_user=self.user,
+        )
+        unit_a = OrganizationalUnit.objects.create(name="Faculty Stats A", unit_type="FACULTY")
+        unit_b = OrganizationalUnit.objects.create(name="Faculty Stats B", unit_type="FACULTY")
+
+        user_model = get_user_model()
+        user3 = user_model.objects.create_user(
+            username="api_user_3",
+            email="api_user_3@example.com",
+            password="secret123",
+        )
+        user4 = user_model.objects.create_user(
+            username="api_user_4",
+            email="api_user_4@example.com",
+            password="secret123",
+        )
+        person3 = Person.objects.create(
+            user=user3,
+            first_name="Marek",
+            last_name="Stat",
+            student_or_employee_no="API-003",
+            organizational_unit=unit_b,
+        )
+        person4 = Person.objects.create(
+            user=user4,
+            first_name="Olga",
+            last_name="Stat",
+            student_or_employee_no="API-004",
+            organizational_unit=unit_a,
+        )
+        self.person1.organizational_unit = unit_a
+        self.person1.save(update_fields=["organizational_unit"])
+        self.person2.organizational_unit = unit_b
+        self.person2.save(update_fields=["organizational_unit"])
+
+        candidate1 = ElectionCandidate.objects.create(
+            election=election,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        candidate2 = ElectionCandidate.objects.create(
+            election=election,
+            person=self.person2,
+            candidate_number=2,
+            is_approved=True,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=self.person2,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=person3,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=person4,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+
+        VotingService.issue_token(
+            election=election,
+            person=self.person1,
+            raw_token="agg-token-1",
+        )
+        VotingService.cast_vote(
+            election=election,
+            person=self.person1,
+            raw_token="agg-token-1",
+            candidate_ids=[candidate1.id],
+            anonymous_key="agg-anon-1",
+        )
+        VotingService.issue_token(
+            election=election,
+            person=self.person2,
+            raw_token="agg-token-2",
+        )
+        VotingService.cast_vote(
+            election=election,
+            person=self.person2,
+            raw_token="agg-token-2",
+            candidate_ids=[candidate2.id],
+            anonymous_key="agg-anon-2",
+        )
+        ElectionLifecycleService.close_election(election, force=True)
+
+        response = self.client.get(
+            reverse("api_election_analytics", kwargs={"election_id": election.id}),
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        kpi = response.data["kpi"]
+        candidate_vote_sum = sum(item["votes_count"] for item in response.data["candidate_support"])
+        unit_eligible_sum = sum(item["eligible_count"] for item in response.data["turnout_by_unit"])
+        unit_voted_sum = sum(item["voted_count"] for item in response.data["turnout_by_unit"])
+
+        self.assertEqual(kpi["total_votes_cast"], candidate_vote_sum)
+        self.assertEqual(kpi["eligible_voters_count"], unit_eligible_sum)
+        self.assertEqual(kpi["voters_count"], unit_voted_sum)
+        self.assertEqual(kpi["eligible_voters_count"], 4)
+        self.assertEqual(kpi["voters_count"], 2)
+        self.assertEqual(kpi["turnout_percent"], "50.00")
+
+    def test_top_turnout_elections_api_uses_voters_count_as_tie_breaker(self):
+        now = timezone.now()
+        election_a = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Tie Turnout A",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=2),
+            end_at=now + timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        election_b = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Tie Turnout B",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=2),
+            end_at=now + timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        user_model = get_user_model()
+        extra_users = []
+        for idx in range(5, 9):
+            extra_user = user_model.objects.create_user(
+                username=f"api_user_{idx}",
+                email=f"api_user_{idx}@example.com",
+                password="secret123",
+            )
+            extra_person = Person.objects.create(
+                user=extra_user,
+                first_name=f"Extra{idx}",
+                last_name="Tie",
+                student_or_employee_no=f"API-00{idx}",
+            )
+            extra_users.append(extra_person)
+
+        candidate_a = ElectionCandidate.objects.create(
+            election=election_a,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        candidate_b = ElectionCandidate.objects.create(
+            election=election_b,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+
+        # Election A: 1/2 voters (50%)
+        for person in [self.person1, self.person2]:
+            VotingEligibility.objects.create(
+                election=election_a,
+                person=person,
+                eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+            )
+        VotingService.issue_token(election=election_a, person=self.person1, raw_token="tie-a-token")
+        VotingService.cast_vote(
+            election=election_a,
+            person=self.person1,
+            raw_token="tie-a-token",
+            candidate_ids=[candidate_a.id],
+            anonymous_key="tie-a-anon",
+        )
+
+        # Election B: 2/4 voters (also 50%, but higher voters_count)
+        for person in [self.person1, self.person2, extra_users[0], extra_users[1]]:
+            VotingEligibility.objects.create(
+                election=election_b,
+                person=person,
+                eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+            )
+        VotingService.issue_token(election=election_b, person=self.person1, raw_token="tie-b-token-1")
+        VotingService.cast_vote(
+            election=election_b,
+            person=self.person1,
+            raw_token="tie-b-token-1",
+            candidate_ids=[candidate_b.id],
+            anonymous_key="tie-b-anon-1",
+        )
+        VotingService.issue_token(election=election_b, person=self.person2, raw_token="tie-b-token-2")
+        VotingService.cast_vote(
+            election=election_b,
+            person=self.person2,
+            raw_token="tie-b-token-2",
+            candidate_ids=[candidate_b.id],
+            anonymous_key="tie-b-anon-2",
+        )
+
+        ElectionLifecycleService.close_election(election_a, force=True)
+        ElectionLifecycleService.close_election(election_b, force=True)
+
+        response = self.client.get(
+            reverse("api_top_turnout_elections"),
+            {"top_n": 2},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["elections"][0]["election_id"], election_b.id)
+        self.assertEqual(response.data["elections"][1]["election_id"], election_a.id)
+        self.assertEqual(response.data["elections"][0]["turnout_percent"], "50.00")
+        self.assertEqual(response.data["elections"][1]["turnout_percent"], "50.00")
 
     def test_analytics_api_rejects_non_closed_election(self):
         now = timezone.now()
