@@ -262,6 +262,12 @@ a:hover {
     color: #1f5d1f;
 }
 
+.content-card .form-message-error {
+    background-color: #fff2f4;
+    border-color: #f1c6cc;
+    color: #8f1d2d;
+}
+
 .content-card .errorlist {
     margin: 0;
     padding: 8px 10px;

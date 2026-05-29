@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
 from .forms import (
     ElectionCandidateCreateForm,
@@ -13,6 +14,7 @@ from .models import (
     Election,
     ElectionCandidate,
     ElectionResult,
+    ElectionType,
     OrganizationalUnit,
     Permission,
     Role,
@@ -51,12 +53,88 @@ def committees_list_view(request):
     }
     return render(request, "elections/committees/list.html", context)
 
+def _build_calendar_context(*, request, elections_queryset):
+    election_type_filter = request.GET.get("election_type", "").strip()
+    organizational_unit_filter = request.GET.get("organizational_unit_id", "").strip()
+    within_hours_filter = request.GET.get("within_hours", "72").strip() or "72"
+
+    filtered_elections = elections_queryset
+    if election_type_filter:
+        filtered_elections = filtered_elections.filter(election_type__code=election_type_filter)
+
+    calendar_error = None
+    if organizational_unit_filter:
+        try:
+            organizational_unit_id = int(organizational_unit_filter)
+            filtered_elections = filtered_elections.filter(organizational_unit_id=organizational_unit_id)
+        except ValueError:
+            calendar_error = "Jednostka organizacyjna musi być liczbą całkowitą."
+
+    within_hours = 72
+    try:
+        within_hours = int(within_hours_filter)
+        if within_hours < 1 or within_hours > 720:
+            raise ValueError
+    except ValueError:
+        within_hours = 72
+        calendar_error = "Zakres przypomnień musi być liczbą od 1 do 720 godzin."
+
+    now = timezone.now()
+    horizon = now + timezone.timedelta(hours=within_hours)
+    calendar_events = []
+    reminders = []
+    if not calendar_error:
+        for election in filtered_elections:
+            if not hasattr(election, "schedule"):
+                continue
+            schedule = election.schedule
+            events_for_election = [
+                ("ELECTION_START", schedule.start_at),
+                ("ELECTION_END", schedule.end_at),
+            ]
+            if schedule.results_publish_at:
+                events_for_election.append(("RESULTS_PUBLISH", schedule.results_publish_at))
+
+            for event_type, event_at in events_for_election:
+                event = {
+                    "event_type": event_type,
+                    "event_at": event_at,
+                    "election_name": election.name,
+                    "election_type": election.election_type.code,
+                    "organizational_unit_name": (
+                        election.organizational_unit.name if election.organizational_unit else "Brak"
+                    ),
+                }
+                calendar_events.append(event)
+                if now < event_at <= horizon:
+                    reminders.append(
+                        {
+                            **event,
+                            "hours_until_event": round((event_at - now).total_seconds() / 3600, 2),
+                        }
+                    )
+
+        calendar_events.sort(key=lambda item: (item["event_at"], item["election_name"], item["event_type"]))
+        reminders.sort(key=lambda item: (item["event_at"], item["election_name"], item["event_type"]))
+
+    return {
+        "calendar_events": calendar_events,
+        "reminders": reminders,
+        "calendar_error": calendar_error,
+        "election_type_filter": election_type_filter,
+        "organizational_unit_filter": organizational_unit_filter,
+        "within_hours_filter": within_hours,
+        "election_types": ElectionType.objects.order_by("name"),
+        "organizational_units": OrganizationalUnit.objects.filter(is_active=True).order_by("name"),
+    }
+
 
 def elections_list_view(request):
     elections = Election.objects.select_related(
         "election_type",
         "election_status",
         "organizational_unit",
+        "schedule",
     ).all()
 
     context = {
@@ -64,6 +142,16 @@ def elections_list_view(request):
     }
     return render(request, "elections/elections/list.html", context)
 
+
+def calendar_view(request):
+    elections = Election.objects.select_related(
+        "election_type",
+        "election_status",
+        "organizational_unit",
+        "schedule",
+    ).all()
+    context = _build_calendar_context(request=request, elections_queryset=elections)
+    return render(request, "elections/calendar/index.html", context)
 
 def results_list_view(request):
     results = ElectionResult.objects.select_related(
@@ -82,13 +170,18 @@ def election_create_view(request):
     if request.method == "POST":
         form = ElectionCreateForm(request.POST)
         if form.is_valid():
-            election = form.save()
-            form = ElectionCreateForm()
-            context = {
-                "form": form,
-                "success_message": f'Dodano wybory: "{election.name}".',
-            }
-            return render(request, "elections/elections/create.html", context)
+            try:
+                election = form.save(
+                    created_by_user=request.user if request.user.is_authenticated else None,
+                )
+                form = ElectionCreateForm()
+                context = {
+                    "form": form,
+                    "success_message": f'Dodano wybory: "{election.name}".',
+                }
+                return render(request, "elections/elections/create.html", context)
+            except ElectionLifecycleError as exc:
+                form.add_error(None, str(exc))
     else:
         form = ElectionCreateForm()
 

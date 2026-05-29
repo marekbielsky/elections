@@ -170,21 +170,24 @@ class ElectionCreateApiView(APIView):
         if data.get("created_by_user_id") is not None:
             created_by_user = get_object_or_404(get_user_model(), id=data["created_by_user_id"])
 
-        election = ElectionLifecycleService.create_election_with_config(
-            election_type=election_type,
-            name=data["name"],
-            election_status=election_status,
-            start_at=data["start_at"],
-            end_at=data["end_at"],
-            created_by_user=created_by_user,
-            organizational_unit=organizational_unit,
-            description=data["description"],
-            is_secret=data["is_secret"],
-            min_choices=data["min_choices"],
-            max_choices=data["max_choices"],
-            allow_blank_vote=data["allow_blank_vote"],
-            allow_vote_change=data["allow_vote_change"],
-        )
+        try:
+            election = ElectionLifecycleService.create_election_with_config(
+                election_type=election_type,
+                name=data["name"],
+                election_status=election_status,
+                start_at=data["start_at"],
+                end_at=data["end_at"],
+                created_by_user=created_by_user,
+                organizational_unit=organizational_unit,
+                description=data["description"],
+                is_secret=data["is_secret"],
+                min_choices=data["min_choices"],
+                max_choices=data["max_choices"],
+                allow_blank_vote=data["allow_blank_vote"],
+                allow_vote_change=data["allow_vote_change"],
+            )
+        except ElectionLifecycleError as exc:
+            raise serializers.ValidationError({"detail": str(exc)})
         if data.get("results_publish_at") is not None:
             election.schedule.results_publish_at = data["results_publish_at"]
             election.schedule.save(update_fields=["results_publish_at"])

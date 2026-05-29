@@ -48,6 +48,19 @@ class CastVoteResult:
 
 class ElectionLifecycleService:
     @staticmethod
+    def _ensure_no_schedule_collision(*, start_at, end_at, organizational_unit) -> None:
+        if organizational_unit is None:
+            return
+        has_collision = ElectionSchedule.objects.filter(
+            election__organizational_unit=organizational_unit,
+            start_at__lt=end_at,
+            end_at__gt=start_at,
+        ).exists()
+        if has_collision:
+            raise ElectionLifecycleError(
+                "Schedule collision detected for the selected organizational unit."
+            )
+    @staticmethod
     def create_election_with_config(
         *,
         election_type,
@@ -65,6 +78,11 @@ class ElectionLifecycleService:
         allow_vote_change: bool = False,
     ) -> Election:
         with transaction.atomic():
+            ElectionLifecycleService._ensure_no_schedule_collision(
+                start_at=start_at,
+                end_at=end_at,
+                organizational_unit=organizational_unit,
+            )
             election = Election.objects.create(
                 election_type=election_type,
                 election_status=election_status,

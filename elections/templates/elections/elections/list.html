@@ -15,6 +15,8 @@
                     <th>Nazwa</th>
                     <th>Typ wyborów</th>
                     <th>Status</th>
+                    <th>Start</th>
+                    <th>Koniec</th>
                     <th>Jednostka organizacyjna</th>
                     <th>Tajne</th>
                     <th>Opis</th>
@@ -27,6 +29,20 @@
                         <td>{{ election.name }}</td>
                         <td>{{ election.election_type.name }}</td>
                         <td>{{ election.election_status.name }}</td>
+                        <td>
+                            {% if election.schedule %}
+                                {{ election.schedule.start_at }}
+                            {% else %}
+                                Brak
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if election.schedule %}
+                                {{ election.schedule.end_at }}
+                            {% else %}
+                                Brak
+                            {% endif %}
+                        </td>
                         <td>
                             {% if election.organizational_unit %}
                                 {{ election.organizational_unit.name }}

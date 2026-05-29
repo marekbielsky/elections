@@ -542,6 +542,30 @@ class ElectionServicesTests(TestCase):
         self.election.refresh_from_db()
         self.assertEqual(self.election.election_status.code, "CLOSED")
 
+    def test_create_election_with_config_blocks_overlapping_schedule_in_same_unit(self):
+        unit = OrganizationalUnit.objects.create(name="Collision Unit", unit_type="FACULTY")
+        now = timezone.now()
+        ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Collision Base",
+            election_status=self.status_draft,
+            start_at=now + timedelta(hours=2),
+            end_at=now + timedelta(hours=4),
+            created_by_user=self.user,
+            organizational_unit=unit,
+        )
+
+        with self.assertRaises(ElectionLifecycleError):
+            ElectionLifecycleService.create_election_with_config(
+                election_type=self.election_type,
+                name="Collision Overlap",
+                election_status=self.status_draft,
+                start_at=now + timedelta(hours=3),
+                end_at=now + timedelta(hours=5),
+                created_by_user=self.user,
+                organizational_unit=unit,
+            )
+
     def test_issue_token_requires_eligibility(self):
         with self.assertRaises(VotingError):
             VotingService.issue_token(
@@ -753,6 +777,41 @@ class ElectionApiEndpointsTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["status"], "DRAFT")
         self.assertEqual(response.data["name"], "API Created Election")
+
+    def test_create_election_api_rejects_schedule_collision_for_same_unit(self):
+        unit = OrganizationalUnit.objects.create(name="API Collision Unit", unit_type="FACULTY")
+        now = timezone.now()
+        ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Existing Unit Election",
+            election_status=self.status_draft,
+            start_at=now + timedelta(hours=2),
+            end_at=now + timedelta(hours=6),
+            created_by_user=self.user,
+            organizational_unit=unit,
+        )
+
+        payload = {
+            "election_type_id": self.election_type.id,
+            "election_status_code": "DRAFT",
+            "organizational_unit_id": unit.id,
+            "name": "Overlapping Unit Election",
+            "description": "Should fail due to collision",
+            "is_secret": True,
+            "start_at": (now + timedelta(hours=3)).isoformat(),
+            "end_at": (now + timedelta(hours=7)).isoformat(),
+            "min_choices": 1,
+            "max_choices": 1,
+            "allow_blank_vote": False,
+            "allow_vote_change": False,
+        }
+        response = self.client.post(
+            reverse("api_election_create"),
+            payload,
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_lifecycle_endpoints(self):
         now = timezone.now()
@@ -1101,8 +1160,8 @@ class ElectionApiEndpointsTests(APITestCase):
             election_type=extra_type,
             name="Reminder Wrong Type",
             election_status=self.status_published,
-            start_at=now + timedelta(hours=4),
-            end_at=now + timedelta(hours=8),
+            start_at=now + timedelta(hours=10),
+            end_at=now + timedelta(hours=12),
             created_by_user=self.user,
             organizational_unit=target_unit,
         )

@@ -1,0 +1,97 @@
+{% extends 'elections/base.html' %}
+{% load static %}
+
+{% block title %}Kalendarz{% endblock %}
+
+{% block content %}
+    <h1>Kalendarz wyborów</h1>
+    <p>Przeglądaj wydarzenia wyborcze i nadchodzące przypomnienia.</p>
+
+    <form method="get" class="app-form">
+        <p>
+            <label for="id_election_type">Typ wyborów</label>
+            <select id="id_election_type" name="election_type">
+                <option value="">Wszystkie</option>
+                {% for election_type in election_types %}
+                    <option value="{{ election_type.code }}" {% if election_type_filter == election_type.code %}selected{% endif %}>
+                        {{ election_type.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </p>
+        <p>
+            <label for="id_organizational_unit_id">Jednostka organizacyjna</label>
+            <select id="id_organizational_unit_id" name="organizational_unit_id">
+                <option value="">Wszystkie</option>
+                {% for unit in organizational_units %}
+                    <option value="{{ unit.id }}" {% if organizational_unit_filter == unit.id|stringformat:"s" %}selected{% endif %}>
+                        {{ unit.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </p>
+        <p>
+            <label for="id_within_hours">Zakres przypomnień (godziny)</label>
+            <input id="id_within_hours" type="number" name="within_hours" min="1" max="720" value="{{ within_hours_filter }}">
+        </p>
+        <button type="submit">Odśwież</button>
+    </form>
+
+    {% if calendar_error %}
+        <p class="form-message form-message-error"><strong>{{ calendar_error }}</strong></p>
+    {% endif %}
+
+    <h2>Wydarzenia kalendarza</h2>
+    {% if calendar_events %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Typ wydarzenia</th>
+                    <th>Wybory</th>
+                    <th>Typ wyborów</th>
+                    <th>Jednostka</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in calendar_events %}
+                    <tr>
+                        <td>{{ event.event_at }}</td>
+                        <td>{{ event.event_type }}</td>
+                        <td>{{ event.election_name }}</td>
+                        <td>{{ event.election_type }}</td>
+                        <td>{{ event.organizational_unit_name }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Brak wydarzeń dla wybranych filtrów.</p>
+    {% endif %}
+
+    <h2>Nadchodzące przypomnienia</h2>
+    {% if reminders %}
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Za ile godzin</th>
+                    <th>Data wydarzenia</th>
+                    <th>Typ wydarzenia</th>
+                    <th>Wybory</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for reminder in reminders %}
+                    <tr>
+                        <td>{{ reminder.hours_until_event }}</td>
+                        <td>{{ reminder.event_at }}</td>
+                        <td>{{ reminder.event_type }}</td>
+                        <td>{{ reminder.election_name }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Brak nadchodzących przypomnień w wybranym zakresie.</p>
+    {% endif %}
+{% endblock %}
