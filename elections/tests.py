@@ -261,32 +261,37 @@ class AdminRoleMvpRoutesTests(TestCase):
         UserRole.objects.create(user=cls.admin_user, role=UserRole.Role.ADMIN)
         UserRole.objects.create(user=cls.normal_user, role=UserRole.Role.USER)
 
-    def test_admin_route_is_forbidden_for_non_admin(self):
+    def test_admin_route_requires_authentication(self):
         response = self.client.get(
             reverse("admin_overview"),
-            HTTP_X_USER_ROLE=UserRole.Role.USER,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_route_is_forbidden_for_non_admin(self):
+        self.client.force_login(self.normal_user)
+        response = self.client.get(
+            reverse("admin_overview"),
             HTTP_ACCEPT="application/json",
         )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["current_role"], UserRole.Role.USER)
 
     def test_admin_route_is_accessible_for_admin(self):
+        self.client.force_login(self.admin_user)
         response = self.client.get(
             reverse("admin_overview"),
-            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
             HTTP_ACCEPT="application/json",
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("summary", response.json())
 
-    def test_admin_route_accepts_role_header_for_mvp_without_auth(self):
+    def test_admin_users_roles_requires_authentication(self):
         response = self.client.get(
             reverse("admin_users_roles"),
-            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
             HTTP_ACCEPT="application/json",
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("users", response.json())
+        self.assertEqual(response.status_code, 403)
 
     @override_settings(
         STORAGES={
@@ -299,9 +304,9 @@ class AdminRoleMvpRoutesTests(TestCase):
         }
     )
     def test_admin_route_renders_html_for_browser_requests(self):
+        self.client.force_login(self.admin_user)
         response = self.client.get(
             reverse("admin_overview"),
-            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Panel administracyjny")
@@ -411,6 +416,7 @@ class AdminWorkflowTests(TestCase):
         )
 
     def test_admin_can_assign_user_role(self):
+        self.client.force_login(self.admin_user)
         response = self.client.post(
             reverse("admin_user_role_assign"),
             {"user_id": self.normal_user.id, "role": UserRole.Role.AUDITOR},
@@ -422,6 +428,7 @@ class AdminWorkflowTests(TestCase):
         self.assertEqual(self.normal_user.role_profile.role, UserRole.Role.AUDITOR)
 
     def test_user_cannot_assign_user_role(self):
+        self.client.force_login(self.normal_user)
         response = self.client.post(
             reverse("admin_user_role_assign"),
             {"user_id": self.normal_user.id, "role": UserRole.Role.ADMIN},
@@ -431,6 +438,7 @@ class AdminWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_admin_can_grant_and_revoke_role_permission(self):
+        self.client.force_login(self.admin_user)
         grant_response = self.client.post(
             reverse("admin_role_permission_assign"),
             {"role_id": self.role_user.id, "permission_id": self.permission_assign_role.id, "grant": "on"},
@@ -460,6 +468,7 @@ class AdminWorkflowTests(TestCase):
         )
 
     def test_user_cannot_assign_role_permission(self):
+        self.client.force_login(self.normal_user)
         response = self.client.post(
             reverse("admin_role_permission_assign"),
             {"role_id": self.role_user.id, "permission_id": self.permission_assign_role.id, "grant": "on"},
@@ -469,6 +478,7 @@ class AdminWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_admin_can_execute_election_lifecycle_actions(self):
+        self.client.force_login(self.admin_user)
         publish_response = self.client.post(
             reverse("admin_election_lifecycle_action"),
             {"election_id": self.election.id, "action": "publish"},
@@ -500,6 +510,7 @@ class AdminWorkflowTests(TestCase):
         self.assertEqual(self.election.election_status.code, "CLOSED")
 
     def test_user_cannot_execute_election_lifecycle_actions(self):
+        self.client.force_login(self.normal_user)
         response = self.client.post(
             reverse("admin_election_lifecycle_action"),
             {"election_id": self.election.id, "action": "publish"},
@@ -800,6 +811,9 @@ class ElectionApiEndpointsTests(APITestCase):
         cls.status_published = ElectionStatus.objects.create(code="PUBLISHED", name="Published")
         cls.status_in_progress = ElectionStatus.objects.create(code="IN_PROGRESS", name="In progress")
         cls.status_closed = ElectionStatus.objects.create(code="CLOSED", name="Closed")
+
+    def setUp(self):
+        self.client.force_login(self.user)
 
     def test_create_election_api(self):
         now = timezone.now()
