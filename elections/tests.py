@@ -924,6 +924,72 @@ class ElectionApiEndpointsTests(APITestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_election_calendar_events_api_returns_start_end_and_publish_events(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Calendar Election",
+            election_status=self.status_published,
+            start_at=now + timedelta(hours=1),
+            end_at=now + timedelta(hours=5),
+            created_by_user=self.user,
+        )
+        election.schedule.results_publish_at = now + timedelta(hours=8)
+        election.schedule.save(update_fields=["results_publish_at"])
+
+        response = self.client.get(
+            reverse("api_election_calendar_events"),
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        election_events = [row for row in response.data["events"] if row["election_id"] == election.id]
+        self.assertEqual(len(election_events), 3)
+        self.assertEqual(
+            [row["event_type"] for row in election_events],
+            ["ELECTION_START", "ELECTION_END", "RESULTS_PUBLISH"],
+        )
+
+    def test_election_calendar_events_api_orders_events_by_datetime(self):
+        now = timezone.now()
+        election_a = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Calendar A",
+            election_status=self.status_published,
+            start_at=now + timedelta(hours=4),
+            end_at=now + timedelta(hours=6),
+            created_by_user=self.user,
+        )
+        election_b = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Calendar B",
+            election_status=self.status_published,
+            start_at=now + timedelta(hours=1),
+            end_at=now + timedelta(hours=2),
+            created_by_user=self.user,
+        )
+
+        response = self.client.get(
+            reverse("api_election_calendar_events"),
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        ids_and_types = [
+            (row["election_id"], row["event_type"])
+            for row in response.data["events"]
+            if row["election_id"] in {election_a.id, election_b.id}
+        ]
+        self.assertEqual(
+            ids_and_types[:4],
+            [
+                (election_b.id, "ELECTION_START"),
+                (election_b.id, "ELECTION_END"),
+                (election_a.id, "ELECTION_START"),
+                (election_a.id, "ELECTION_END"),
+            ],
+        )
+
     def test_top_turnout_elections_api_returns_ranked_data(self):
         now = timezone.now()
 

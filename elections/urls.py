@@ -4,6 +4,7 @@ from .api_views import (
     CastVoteApiView,
     ElectionCloseApiView,
     ElectionCreateApiView,
+    ElectionCalendarEventsApiView,
     ElectionAnalyticsApiView,
     ElectionDetailApiView,
     HistoricalTrendsApiView,
@@ -60,6 +61,11 @@ urlpatterns = [
         name="admin_election_lifecycle_action",
     ),
     path("api/elections/", ElectionCreateApiView.as_view(), name="api_election_create"),
+    path(
+        "api/elections/calendar/events/",
+        ElectionCalendarEventsApiView.as_view(),
+        name="api_election_calendar_events",
+    ),
     path("api/elections/<int:election_id>/", ElectionDetailApiView.as_view(), name="api_election_detail"),
     path(
         "api/elections/<int:election_id>/results/",

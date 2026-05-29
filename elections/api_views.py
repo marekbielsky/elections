@@ -157,6 +157,62 @@ class ElectionDetailApiView(APIView):
         return Response(_serialize_election(election), status=status.HTTP_200_OK)
 
 
+class ElectionCalendarEventsApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.ELECTION_READ
+
+    def get(self, request):
+        elections = Election.objects.select_related(
+            "schedule",
+            "election_type",
+            "election_status",
+            "organizational_unit",
+        ).all()
+
+        events = []
+        for election in elections:
+            schedule = getattr(election, "schedule", None)
+            if schedule is None:
+                continue
+            events.append(
+                {
+                    "event_type": "ELECTION_START",
+                    "event_at": schedule.start_at,
+                    "election_id": election.id,
+                    "election_name": election.name,
+                    "election_type": election.election_type.code,
+                    "election_status": election.election_status.code,
+                    "organizational_unit_id": election.organizational_unit_id,
+                }
+            )
+            events.append(
+                {
+                    "event_type": "ELECTION_END",
+                    "event_at": schedule.end_at,
+                    "election_id": election.id,
+                    "election_name": election.name,
+                    "election_type": election.election_type.code,
+                    "election_status": election.election_status.code,
+                    "organizational_unit_id": election.organizational_unit_id,
+                }
+            )
+            if schedule.results_publish_at:
+                events.append(
+                    {
+                        "event_type": "RESULTS_PUBLISH",
+                        "event_at": schedule.results_publish_at,
+                        "election_id": election.id,
+                        "election_name": election.name,
+                        "election_type": election.election_type.code,
+                        "election_status": election.election_status.code,
+                        "organizational_unit_id": election.organizational_unit_id,
+                    }
+                )
+
+        events.sort(key=lambda item: (item["event_at"], item["election_id"], item["event_type"]))
+        return Response({"events": events}, status=status.HTTP_200_OK)
+
+
 class ElectionResultsApiView(APIView):
     permission_classes = [RBACPermission]
     required_permission_code = PermissionCodes.RESULT_READ
