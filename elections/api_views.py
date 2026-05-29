@@ -168,6 +168,19 @@ class ElectionCalendarEventsApiView(APIView):
             "election_status",
             "organizational_unit",
         ).all()
+        election_type_code = request.query_params.get("election_type", "").strip()
+        organizational_unit_id = request.query_params.get("organizational_unit_id", "").strip()
+        if election_type_code:
+            elections = elections.filter(election_type__code=election_type_code)
+        if organizational_unit_id:
+            try:
+                organizational_unit_id_int = int(organizational_unit_id)
+            except ValueError:
+                return Response(
+                    {"detail": "organizational_unit_id must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            elections = elections.filter(organizational_unit_id=organizational_unit_id_int)
 
         events = []
         for election in elections:

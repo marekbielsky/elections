@@ -990,6 +990,59 @@ class ElectionApiEndpointsTests(APITestCase):
             ],
         )
 
+    def test_election_calendar_events_api_filters_by_election_type_and_unit(self):
+        now = timezone.now()
+        extra_type = ElectionType.objects.create(code="API_ALT", name="Alt type")
+        target_unit = OrganizationalUnit.objects.create(name="Calendar Target Unit", unit_type="FACULTY")
+        other_unit = OrganizationalUnit.objects.create(name="Calendar Other Unit", unit_type="FACULTY")
+
+        target = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Calendar Target Election",
+            election_status=self.status_published,
+            start_at=now + timedelta(hours=1),
+            end_at=now + timedelta(hours=2),
+            created_by_user=self.user,
+            organizational_unit=target_unit,
+        )
+        ElectionLifecycleService.create_election_with_config(
+            election_type=extra_type,
+            name="Calendar Wrong Type",
+            election_status=self.status_published,
+            start_at=now + timedelta(hours=3),
+            end_at=now + timedelta(hours=4),
+            created_by_user=self.user,
+            organizational_unit=target_unit,
+        )
+        ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Calendar Wrong Unit",
+            election_status=self.status_published,
+            start_at=now + timedelta(hours=5),
+            end_at=now + timedelta(hours=6),
+            created_by_user=self.user,
+            organizational_unit=other_unit,
+        )
+
+        response = self.client.get(
+            reverse("api_election_calendar_events"),
+            {"election_type": self.election_type.code, "organizational_unit_id": target_unit.id},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        returned_ids = {row["election_id"] for row in response.data["events"]}
+        self.assertEqual(returned_ids, {target.id})
+
+    def test_election_calendar_events_api_rejects_invalid_organizational_unit_id(self):
+        response = self.client.get(
+            reverse("api_election_calendar_events"),
+            {"organizational_unit_id": "invalid"},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_top_turnout_elections_api_returns_ranked_data(self):
         now = timezone.now()
 
