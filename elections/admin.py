@@ -1,3 +1,56 @@
 from django.contrib import admin
+from .models import (
+    AdminActionLog,
+    AuditLog,
+    Ballot,
+    BallotSelection,
+    CandidateAttachment,
+    Election,
+    ElectionCandidate,
+    ElectionEvent,
+    ElectionResult,
+    ElectionResultItem,
+    ElectionSchedule,
+    ElectionStatus,
+    ElectionType,
+    GeneratedDocument,
+    Notification,
+    OrganizationalUnit,
+    Permission,
+    Person,
+    Role,
+    RolePermission,
+    StoredFile,
+    UserRole,
+    VotingEligibility,
+    VotingParticipation,
+    VotingRule,
+    VotingToken,
+)
 
-# Register your models here.
+admin.site.register(OrganizationalUnit)
+admin.site.register(StoredFile)
+admin.site.register(Person)
+admin.site.register(UserRole)
+admin.site.register(Role)
+admin.site.register(Permission)
+admin.site.register(RolePermission)
+admin.site.register(AdminActionLog)
+admin.site.register(ElectionType)
+admin.site.register(ElectionStatus)
+admin.site.register(Election)
+admin.site.register(ElectionSchedule)
+admin.site.register(VotingRule)
+admin.site.register(ElectionCandidate)
+admin.site.register(VotingEligibility)
+admin.site.register(VotingToken)
+admin.site.register(VotingParticipation)
+admin.site.register(Ballot)
+admin.site.register(BallotSelection)
+admin.site.register(ElectionResult)
+admin.site.register(ElectionResultItem)
+admin.site.register(GeneratedDocument)
+admin.site.register(CandidateAttachment)
+admin.site.register(Notification)
+admin.site.register(AuditLog)
+admin.site.register(ElectionEvent)

@@ -1,5 +1,15 @@
 from django.urls import path
 from . import views
+from .api_views import (
+    CastVoteApiView,
+    ElectionCloseApiView,
+    ElectionCreateApiView,
+    ElectionDetailApiView,
+    ElectionPublishApiView,
+    ElectionResultsApiView,
+    ElectionStartApiView,
+    IssueVotingTokenApiView,
+)
 
 urlpatterns = [
     path("", views.home_view, name="home"),
@@ -23,5 +33,37 @@ urlpatterns = [
         "management/admin/draft-elections/",
         views.admin_draft_elections_view,
         name="admin_draft_elections",
+    ),
+    path("api/elections/", ElectionCreateApiView.as_view(), name="api_election_create"),
+    path("api/elections/<int:election_id>/", ElectionDetailApiView.as_view(), name="api_election_detail"),
+    path(
+        "api/elections/<int:election_id>/results/",
+        ElectionResultsApiView.as_view(),
+        name="api_election_results",
+    ),
+    path(
+        "api/elections/<int:election_id>/publish/",
+        ElectionPublishApiView.as_view(),
+        name="api_election_publish",
+    ),
+    path(
+        "api/elections/<int:election_id>/start/",
+        ElectionStartApiView.as_view(),
+        name="api_election_start",
+    ),
+    path(
+        "api/elections/<int:election_id>/close/",
+        ElectionCloseApiView.as_view(),
+        name="api_election_close",
+    ),
+    path(
+        "api/elections/<int:election_id>/tokens/issue/",
+        IssueVotingTokenApiView.as_view(),
+        name="api_issue_voting_token",
+    ),
+    path(
+        "api/elections/<int:election_id>/vote/",
+        CastVoteApiView.as_view(),
+        name="api_cast_vote",
     ),
 ]

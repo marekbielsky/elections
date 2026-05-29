@@ -102,6 +102,87 @@ class UserRole(models.Model):
     def __str__(self) -> str:
         return f"{self.user} -> {self.role}"
 
+class Role(models.Model):
+    code = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=100)
+    description = models.CharField(max_length=255, blank=True)
+    is_system = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return self.code
+
+
+class Permission(models.Model):
+    code = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=120)
+    description = models.CharField(max_length=255, blank=True)
+    module = models.CharField(max_length=80, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return self.code
+
+
+class RolePermission(models.Model):
+    role = models.ForeignKey(
+        Role,
+        on_delete=models.CASCADE,
+        related_name="role_permissions",
+    )
+    permission = models.ForeignKey(
+        Permission,
+        on_delete=models.CASCADE,
+        related_name="role_permissions",
+    )
+    granted_by_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="granted_role_permissions",
+    )
+    granted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["role", "permission"],
+                name="unique_permission_per_role",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.role.code} -> {self.permission.code}"
+
+
+class AdminActionLog(models.Model):
+    performed_by_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="admin_action_logs",
+    )
+    role = models.ForeignKey(
+        Role,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="admin_action_logs",
+    )
+    action_type = models.CharField(max_length=50)
+    target_table = models.CharField(max_length=100)
+    target_id = models.BigIntegerField(null=True, blank=True)
+    action_details = models.TextField(blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"{self.action_type} -> {self.target_table}#{self.target_id}"
+
 
 class ElectionType(models.Model):
     code = models.CharField(max_length=50, unique=True)

@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.urls import reverse
 from django.utils import timezone
+from rest_framework.test import APITestCase
 
 from .models import (
     Ballot,
@@ -18,9 +19,12 @@ from .models import (
     Notification,
     Person,
     UserRole,
+    VotingEligibility,
+    VotingParticipation,
     VotingRule,
     VotingToken,
 )
+from .services import ElectionLifecycleError, ElectionLifecycleService, VotingError, VotingService
 
 
 class ElectionIntegrityAndSecurityTests(TestCase):
@@ -296,3 +300,351 @@ class AdminRoleMvpRoutesTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Panel administracyjny")
+
+
+class ElectionServicesTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        user_model = get_user_model()
+        cls.user = user_model.objects.create_user(
+            username="service_user",
+            email="service_user@example.com",
+            password="secret123",
+        )
+        cls.user2 = user_model.objects.create_user(
+            username="service_user_2",
+            email="service_user_2@example.com",
+            password="secret123",
+        )
+        cls.person = Person.objects.create(
+            user=cls.user,
+            first_name="Marek",
+            last_name="Nowicki",
+            student_or_employee_no="SV-001",
+        )
+        cls.person2 = Person.objects.create(
+            user=cls.user2,
+            first_name="Kasia",
+            last_name="Witkowska",
+            student_or_employee_no="SV-002",
+        )
+
+        cls.election_type = ElectionType.objects.create(code="SERVICE_TEST", name="Service test")
+        cls.status_draft = ElectionStatus.objects.create(code="DRAFT", name="Draft")
+        cls.status_published = ElectionStatus.objects.create(code="PUBLISHED", name="Published")
+        cls.status_in_progress = ElectionStatus.objects.create(code="IN_PROGRESS", name="In progress")
+        cls.status_closed = ElectionStatus.objects.create(code="CLOSED", name="Closed")
+
+        now = timezone.now()
+        cls.election = Election.objects.create(
+            election_type=cls.election_type,
+            election_status=cls.status_draft,
+            name="Service election",
+            created_by_user=cls.user,
+        )
+        ElectionSchedule.objects.create(
+            election=cls.election,
+            start_at=now - timedelta(hours=1),
+            end_at=now + timedelta(hours=1),
+        )
+        VotingRule.objects.create(
+            election=cls.election,
+            min_choices=1,
+            max_choices=2,
+            allow_blank_vote=False,
+            allow_vote_change=False,
+        )
+        cls.candidate1 = ElectionCandidate.objects.create(
+            election=cls.election,
+            person=cls.person,
+            candidate_number=1,
+            is_approved=True,
+        )
+        cls.candidate2 = ElectionCandidate.objects.create(
+            election=cls.election,
+            person=cls.person2,
+            candidate_number=2,
+            is_approved=True,
+        )
+
+    def test_lifecycle_publish_start_close(self):
+        ElectionLifecycleService.publish_election(self.election)
+        self.election.refresh_from_db()
+        self.assertEqual(self.election.election_status.code, "PUBLISHED")
+
+        ElectionLifecycleService.start_election(self.election)
+        self.election.refresh_from_db()
+        self.assertEqual(self.election.election_status.code, "IN_PROGRESS")
+
+        with self.assertRaises(ElectionLifecycleError):
+            ElectionLifecycleService.close_election(self.election)
+
+        ElectionLifecycleService.close_election(self.election, force=True)
+        self.election.refresh_from_db()
+        self.assertEqual(self.election.election_status.code, "CLOSED")
+
+    def test_issue_token_requires_eligibility(self):
+        with self.assertRaises(VotingError):
+            VotingService.issue_token(
+                election=self.election,
+                person=self.person,
+                raw_token="token-no-eligibility",
+            )
+
+    def test_cast_vote_happy_path_marks_participation_and_token(self):
+        self.election.election_status = self.status_in_progress
+        self.election.save(update_fields=["election_status"])
+        VotingEligibility.objects.create(
+            election=self.election,
+            person=self.person,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        token = VotingService.issue_token(
+            election=self.election,
+            person=self.person,
+            raw_token="service-raw-token",
+        )
+
+        result = VotingService.cast_vote(
+            election=self.election,
+            person=self.person,
+            raw_token="service-raw-token",
+            candidate_ids=[self.candidate1.id, self.candidate2.id],
+            anonymous_key="service-anon-key",
+            ip_address="127.0.0.1",
+        )
+
+        token.refresh_from_db()
+        self.assertTrue(token.is_used)
+        self.assertEqual(result.selected_candidate_ids, [self.candidate1.id, self.candidate2.id])
+
+        ballot = Ballot.objects.get(id=result.ballot_id)
+        self.assertEqual(ballot.ballot_status, Ballot.BallotStatus.SUBMITTED)
+        self.assertEqual(ballot.selections.count(), 2)
+
+        participation = VotingParticipation.objects.get(election=self.election, person=self.person)
+        self.assertTrue(participation.has_voted)
+        self.assertEqual(participation.ip_address, "127.0.0.1")
+
+    def test_cast_vote_rejects_token_reuse_when_vote_change_disabled(self):
+        self.election.election_status = self.status_in_progress
+        self.election.save(update_fields=["election_status"])
+        VotingEligibility.objects.create(
+            election=self.election,
+            person=self.person,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingService.issue_token(
+            election=self.election,
+            person=self.person,
+            raw_token="one-time-token",
+        )
+
+        VotingService.cast_vote(
+            election=self.election,
+            person=self.person,
+            raw_token="one-time-token",
+            candidate_ids=[self.candidate1.id],
+            anonymous_key="anon-once",
+        )
+
+        with self.assertRaises(VotingError):
+            VotingService.cast_vote(
+                election=self.election,
+                person=self.person,
+                raw_token="one-time-token",
+                candidate_ids=[self.candidate2.id],
+                anonymous_key="anon-twice",
+            )
+
+    def test_cast_vote_rejects_invalid_choice_count(self):
+        self.election.election_status = self.status_in_progress
+        self.election.save(update_fields=["election_status"])
+        VotingEligibility.objects.create(
+            election=self.election,
+            person=self.person,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingService.issue_token(
+            election=self.election,
+            person=self.person,
+            raw_token="token-invalid-choice",
+        )
+
+        with self.assertRaises(VotingError):
+            VotingService.cast_vote(
+                election=self.election,
+                person=self.person,
+                raw_token="token-invalid-choice",
+                candidate_ids=[],
+                anonymous_key="anon-invalid-choice",
+            )
+
+
+class ElectionApiEndpointsTests(APITestCase):
+    @classmethod
+    def setUpTestData(cls):
+        user_model = get_user_model()
+        cls.user = user_model.objects.create_user(
+            username="api_user",
+            email="api_user@example.com",
+            password="secret123",
+        )
+        cls.user2 = user_model.objects.create_user(
+            username="api_user_2",
+            email="api_user_2@example.com",
+            password="secret123",
+        )
+        cls.person1 = Person.objects.create(
+            user=cls.user,
+            first_name="Ola",
+            last_name="Krawczyk",
+            student_or_employee_no="API-001",
+        )
+        cls.person2 = Person.objects.create(
+            user=cls.user2,
+            first_name="Piotr",
+            last_name="Mazur",
+            student_or_employee_no="API-002",
+        )
+        cls.election_type = ElectionType.objects.create(code="API_TYPE", name="API type")
+        cls.status_draft = ElectionStatus.objects.create(code="DRAFT", name="Draft")
+        cls.status_published = ElectionStatus.objects.create(code="PUBLISHED", name="Published")
+        cls.status_in_progress = ElectionStatus.objects.create(code="IN_PROGRESS", name="In progress")
+        cls.status_closed = ElectionStatus.objects.create(code="CLOSED", name="Closed")
+
+    def test_create_election_api(self):
+        now = timezone.now()
+        payload = {
+            "election_type_id": self.election_type.id,
+            "election_status_code": "DRAFT",
+            "name": "API Created Election",
+            "description": "Created via API",
+            "is_secret": True,
+            "start_at": (now + timedelta(hours=1)).isoformat(),
+            "end_at": (now + timedelta(hours=2)).isoformat(),
+            "min_choices": 1,
+            "max_choices": 1,
+            "allow_blank_vote": False,
+            "allow_vote_change": False,
+        }
+        response = self.client.post(reverse("api_election_create"), payload, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["status"], "DRAFT")
+        self.assertEqual(response.data["name"], "API Created Election")
+
+    def test_lifecycle_endpoints(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Lifecycle API Election",
+            election_status=self.status_draft,
+            start_at=now - timedelta(hours=1),
+            end_at=now + timedelta(hours=1),
+            created_by_user=self.user,
+        )
+
+        publish = self.client.post(reverse("api_election_publish", kwargs={"election_id": election.id}), {}, format="json")
+        self.assertEqual(publish.status_code, 200)
+        self.assertEqual(publish.data["status"], "PUBLISHED")
+
+        start = self.client.post(reverse("api_election_start", kwargs={"election_id": election.id}), {}, format="json")
+        self.assertEqual(start.status_code, 200)
+        self.assertEqual(start.data["status"], "IN_PROGRESS")
+
+        close = self.client.post(
+            reverse("api_election_close", kwargs={"election_id": election.id}),
+            {"force": True},
+            format="json",
+        )
+        self.assertEqual(close.status_code, 200)
+        self.assertEqual(close.data["status"], "CLOSED")
+
+    def test_issue_token_and_cast_vote_api(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Vote API Election",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=1),
+            end_at=now + timedelta(hours=1),
+            created_by_user=self.user,
+            min_choices=1,
+            max_choices=2,
+        )
+        candidate1 = ElectionCandidate.objects.create(
+            election=election,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        candidate2 = ElectionCandidate.objects.create(
+            election=election,
+            person=self.person2,
+            candidate_number=2,
+            is_approved=True,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+
+        issue = self.client.post(
+            reverse("api_issue_voting_token", kwargs={"election_id": election.id}),
+            {"person_id": self.person1.id, "raw_token": "api-vote-token"},
+            format="json",
+        )
+        self.assertEqual(issue.status_code, 201)
+
+        vote = self.client.post(
+            reverse("api_cast_vote", kwargs={"election_id": election.id}),
+            {
+                "person_id": self.person1.id,
+                "raw_token": "api-vote-token",
+                "candidate_ids": [candidate1.id, candidate2.id],
+                "anonymous_key": "api-anon-key",
+            },
+            format="json",
+        )
+        self.assertEqual(vote.status_code, 201)
+        self.assertEqual(vote.data["selected_candidate_ids"], [candidate1.id, candidate2.id])
+
+    def test_cast_vote_api_rejects_invalid_token(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Vote Invalid Token",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=1),
+            end_at=now + timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        candidate = ElectionCandidate.objects.create(
+            election=election,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingService.issue_token(
+            election=election,
+            person=self.person1,
+            raw_token="valid-token",
+        )
+
+        vote = self.client.post(
+            reverse("api_cast_vote", kwargs={"election_id": election.id}),
+            {
+                "person_id": self.person1.id,
+                "raw_token": "invalid-token",
+                "candidate_ids": [candidate.id],
+                "anonymous_key": "api-anon-key-2",
+            },
+            format="json",
+        )
+        self.assertEqual(vote.status_code, 400)
