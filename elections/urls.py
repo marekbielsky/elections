@@ -6,8 +6,10 @@ from .api_views import (
     ElectionCreateApiView,
     ElectionDetailApiView,
     ElectionPublishApiView,
+    ElectionResultPdfGenerateApiView,
     ElectionResultsApiView,
     ElectionStartApiView,
+    GeneratedDocumentDownloadApiView,
     IssueVotingTokenApiView,
 )
 
@@ -60,6 +62,16 @@ urlpatterns = [
         "api/elections/<int:election_id>/results/",
         ElectionResultsApiView.as_view(),
         name="api_election_results",
+    ),
+    path(
+        "api/elections/<int:election_id>/results/pdf/",
+        ElectionResultPdfGenerateApiView.as_view(),
+        name="api_election_result_pdf_generate",
+    ),
+    path(
+        "api/documents/<int:document_id>/download/",
+        GeneratedDocumentDownloadApiView.as_view(),
+        name="api_generated_document_download",
     ),
     path(
         "api/elections/<int:election_id>/publish/",

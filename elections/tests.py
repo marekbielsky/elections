@@ -13,6 +13,7 @@ from .models import (
     Election,
     ElectionCandidate,
     ElectionEvent,
+    GeneratedDocument,
     ElectionSchedule,
     ElectionStatus,
     ElectionType,
@@ -942,3 +943,62 @@ class ElectionApiEndpointsTests(APITestCase):
             HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_result_pdf_generation_and_download(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="PDF Report Election",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=2),
+            end_at=now - timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        candidate = ElectionCandidate.objects.create(
+            election=election,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingService.issue_token(
+            election=election,
+            person=self.person1,
+            raw_token="pdf-report-token",
+        )
+        VotingService.cast_vote(
+            election=election,
+            person=self.person1,
+            raw_token="pdf-report-token",
+            candidate_ids=[candidate.id],
+            anonymous_key="pdf-report-anon",
+        )
+        ElectionLifecycleService.close_election(election, force=True)
+
+        generate_response = self.client.post(
+            reverse("api_election_result_pdf_generate", kwargs={"election_id": election.id}),
+            {},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(generate_response.status_code, 201)
+        document_id = generate_response.data["document_id"]
+        self.assertTrue(
+            GeneratedDocument.objects.filter(
+                id=document_id,
+                document_type=GeneratedDocument.DocumentType.RESULT_PDF,
+                election=election,
+            ).exists()
+        )
+
+        download_response = self.client.get(
+            reverse("api_generated_document_download", kwargs={"document_id": document_id}),
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(download_response.status_code, 200)
+        pdf_bytes = b"".join(download_response.streaming_content)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF-1.4"))

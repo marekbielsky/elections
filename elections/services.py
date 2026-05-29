@@ -1,7 +1,9 @@
 import secrets
+import uuid
 from decimal import Decimal, ROUND_HALF_UP
 from dataclasses import dataclass
 from typing import Iterable
+from django.core.files.base import ContentFile
 
 from django.db import transaction
 from django.db.models import Count, Q
@@ -13,9 +15,11 @@ from .models import (
     ElectionCandidate,
     ElectionResult,
     ElectionResultItem,
+    GeneratedDocument,
     Election,
     ElectionSchedule,
     ElectionStatus,
+    StoredFile,
     VotingEligibility,
     VotingParticipation,
     VotingRule,
@@ -403,3 +407,94 @@ class ElectionResultService:
             Decimal("0.01"),
             rounding=ROUND_HALF_UP,
         )
+
+
+class ElectionResultDocumentService:
+    @staticmethod
+    def generate_result_pdf(*, election: Election, generated_by_user=None) -> GeneratedDocument:
+        if election.election_status.code != "CLOSED":
+            raise ElectionLifecycleError("Result PDF can be generated only for closed elections.")
+
+        result = ElectionResult.objects.filter(election=election).prefetch_related("items").first()
+        if result is None:
+            result = ElectionResultService.generate_results(
+                election=election,
+                generated_by_user=generated_by_user,
+                is_final=True,
+            )
+
+        lines = [
+            "Election Result Report",
+            f"Election ID: {election.id}",
+            f"Election name: {election.name}",
+            f"Calculated at: {result.calculated_at}",
+            f"Eligible voters: {result.eligible_voters_count}",
+            f"Voters: {result.voters_count}",
+            f"Turnout: {result.turnout_percent}%",
+            "",
+            "Ranking:",
+        ]
+        for item in result.items.select_related("election_candidate__person").order_by("ranking_position"):
+            person = item.election_candidate.person
+            lines.append(
+                f"{item.ranking_position}. {person.first_name} {person.last_name} "
+                f"- votes: {item.votes_count}, share: {item.votes_percent}%"
+            )
+
+        pdf_bytes = ElectionResultDocumentService._build_simple_pdf(lines)
+        stored_file_name = f"result-report-{election.id}-{uuid.uuid4().hex}.pdf"
+        stored_file = StoredFile.objects.create(
+            original_file_name=f"election-{election.id}-result-report.pdf",
+            stored_file_name=stored_file_name,
+            file=ContentFile(pdf_bytes, name=stored_file_name),
+            mime_type="application/pdf",
+            file_size_bytes=len(pdf_bytes),
+            uploaded_by_user=generated_by_user,
+            is_public=False,
+        )
+        return GeneratedDocument.objects.create(
+            election=election,
+            election_result=result,
+            stored_file=stored_file,
+            document_type=GeneratedDocument.DocumentType.RESULT_PDF,
+            generated_by_user=generated_by_user,
+        )
+
+    @staticmethod
+    def _build_simple_pdf(lines: list[str]) -> bytes:
+        def _escape(line: str) -> str:
+            ascii_line = line.encode("latin-1", "replace").decode("latin-1")
+            return ascii_line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+        text_lines = "BT /F1 12 Tf 50 790 Td 16 TL " + " ".join(
+            f"({_escape(line)}) Tj T*" for line in lines
+        ) + " ET"
+        stream_bytes = text_lines.encode("latin-1")
+
+        objects = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            b"<< /Length " + str(len(stream_bytes)).encode("ascii") + b" >>\nstream\n" + stream_bytes + b"\nendstream",
+        ]
+
+        output = b"%PDF-1.4\n"
+        offsets = [0]
+        for index, obj in enumerate(objects, start=1):
+            offsets.append(len(output))
+            output += f"{index} 0 obj\n".encode("ascii") + obj + b"\nendobj\n"
+
+        xref_pos = len(output)
+        output += f"xref\n0 {len(objects) + 1}\n".encode("ascii")
+        output += b"0000000000 65535 f \n"
+        for offset in offsets[1:]:
+            output += f"{offset:010d} 00000 n \n".encode("ascii")
+        output += (
+            b"trailer\n"
+            + f"<< /Size {len(objects) + 1} /Root 1 0 R >>\n".encode("ascii")
+            + b"startxref\n"
+            + str(xref_pos).encode("ascii")
+            + b"\n%%EOF"
+        )
+        return output

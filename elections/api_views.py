@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.http import FileResponse
 from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -10,6 +11,7 @@ from .models import (
     ElectionResult,
     ElectionStatus,
     ElectionType,
+    GeneratedDocument,
     OrganizationalUnit,
     Person,
 )
@@ -17,6 +19,7 @@ from .rbac import PermissionCodes, RBACPermission
 from .services import (
     ElectionLifecycleError,
     ElectionLifecycleService,
+    ElectionResultDocumentService,
     ElectionResultService,
     VotingError,
     VotingService,
@@ -280,4 +283,54 @@ class CastVoteApiView(APIView):
                 "selected_candidate_ids": result.selected_candidate_ids,
             },
             status=status.HTTP_201_CREATED,
+        )
+
+
+class ElectionResultPdfGenerateApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.RESULT_READ
+
+    def post(self, request, election_id: int):
+        election = get_object_or_404(Election.objects.select_related("schedule", "election_status"), id=election_id)
+        if election.election_status.code != "CLOSED":
+            return Response(
+                {"detail": "Result PDF can be generated only for closed elections."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if election.schedule.results_publish_at and timezone.now() < election.schedule.results_publish_at:
+            return Response(
+                {"detail": "Results are not published yet."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        document = ElectionResultDocumentService.generate_result_pdf(
+            election=election,
+            generated_by_user=request.user if request.user.is_authenticated else None,
+        )
+        return Response(
+            {
+                "document_id": document.id,
+                "document_type": document.document_type,
+                "election_id": document.election_id,
+                "file_name": document.stored_file.original_file_name,
+                "file_size_bytes": document.stored_file.file_size_bytes,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class GeneratedDocumentDownloadApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.RESULT_READ
+
+    def get(self, request, document_id: int):
+        document = get_object_or_404(
+            GeneratedDocument.objects.select_related("stored_file"),
+            id=document_id,
+        )
+        file_handle = document.stored_file.file.open("rb")
+        return FileResponse(
+            file_handle,
+            as_attachment=True,
+            filename=document.stored_file.original_file_name,
+            content_type=document.stored_file.mime_type or "application/octet-stream",
         )
