@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
-    startCommand: python manage.py migrate && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+    startCommand: python manage.py migrate && python manage.py bootstrap_data --env prod && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
     envVars:
       - key: DJANGO_SECRET_KEY
         generateValue: true
@@ -15,4 +15,8 @@ services:
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
         value: "https://*.onrender.com"
       - key: SQLITE_DB_PATH
-        value: "/tmp/db.sqlite3"
+        value: "/var/data/db.sqlite3"
+    disk:
+      name: sqlite-data
+      mountPath: /var/data
+      sizeGB: 1
