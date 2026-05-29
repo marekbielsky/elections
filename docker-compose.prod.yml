@@ -9,9 +9,11 @@ services:
       DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
       SQLITE_DB_PATH: ${SQLITE_DB_PATH:-/data/db.sqlite3}
+      BOOTSTRAP_WITH_DEMO: ${BOOTSTRAP_WITH_DEMO:-0}
     command: >
       sh -c "python manage.py migrate &&
-             python manage.py runserver 0.0.0.0:${APP_PORT:-8000}"
+             python manage.py bootstrap_data --env prod &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000"
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:
