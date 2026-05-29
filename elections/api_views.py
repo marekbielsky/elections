@@ -16,6 +16,7 @@ from .models import (
     GeneratedDocument,
     OrganizationalUnit,
     Person,
+    UserRole,
     VotingEligibility,
     VotingParticipation,
 )
@@ -28,6 +29,12 @@ from .services import (
     VotingError,
     VotingService,
 )
+
+PRIVILEGED_DASHBOARD_ROLES = {UserRole.Role.ADMIN, UserRole.Role.AUDITOR}
+
+
+def _is_public_dashboard_role(request) -> bool:
+    return getattr(request, "mvp_role", UserRole.Role.USER) not in PRIVILEGED_DASHBOARD_ROLES
 
 
 class ElectionCreateRequestSerializer(serializers.Serializer):
@@ -257,6 +264,19 @@ class HistoricalTrendsApiView(APIView):
                 "min_turnout_percent": f"{min_turnout:.2f}",
             },
         }
+        if _is_public_dashboard_role(request):
+            payload = {
+                "window": payload["window"],
+                "points": [
+                    {
+                        "sequence": index,
+                        "election_type": point["election_type"],
+                        "turnout_percent": point["turnout_percent"],
+                    }
+                    for index, point in enumerate(payload["points"], start=1)
+                ],
+                "summary": payload["summary"],
+            }
         return Response(payload, status=status.HTTP_200_OK)
 
 
@@ -526,6 +546,27 @@ class ElectionAnalyticsApiView(APIView):
             "candidate_support": candidate_support,
             "turnout_by_unit": turnout_by_unit,
         }
+        if _is_public_dashboard_role(request):
+            payload = {
+                "election_id": payload["election_id"],
+                "kpi": {
+                    "turnout_percent": payload["kpi"]["turnout_percent"],
+                },
+                "candidate_support": [
+                    {
+                        "candidate_number": row["candidate_number"],
+                        "votes_percent": row["votes_percent"],
+                    }
+                    for row in payload["candidate_support"]
+                ],
+                "turnout_by_unit": [
+                    {
+                        "unit_label": f"Unit {index}",
+                        "turnout_percent": row["turnout_percent"],
+                    }
+                    for index, row in enumerate(payload["turnout_by_unit"], start=1)
+                ],
+            }
         return Response(payload, status=status.HTTP_200_OK)
 
     @staticmethod
@@ -594,4 +635,16 @@ class TopTurnoutElectionsApiView(APIView):
                 for index, result in enumerate(ranked_results, start=1)
             ],
         }
+        if _is_public_dashboard_role(request):
+            payload = {
+                "top_n": payload["top_n"],
+                "elections": [
+                    {
+                        "rank": row["rank"],
+                        "election_type": row["election_type"],
+                        "turnout_percent": row["turnout_percent"],
+                    }
+                    for row in payload["elections"]
+                ],
+            }
         return Response(payload, status=status.HTTP_200_OK)

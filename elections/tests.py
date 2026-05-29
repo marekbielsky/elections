@@ -1211,6 +1211,155 @@ class ElectionApiEndpointsTests(APITestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_top_turnout_elections_api_hides_sensitive_fields_for_user_role(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Public Top Turnout",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=2),
+            end_at=now + timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        candidate = ElectionCandidate.objects.create(
+            election=election,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingService.issue_token(
+            election=election,
+            person=self.person1,
+            raw_token="public-top-token",
+        )
+        VotingService.cast_vote(
+            election=election,
+            person=self.person1,
+            raw_token="public-top-token",
+            candidate_ids=[candidate.id],
+            anonymous_key="public-top-anon",
+        )
+        ElectionLifecycleService.close_election(election, force=True)
+
+        response = self.client.get(
+            reverse("api_top_turnout_elections"),
+            {"top_n": 1},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
+        )
+        self.assertEqual(response.status_code, 200)
+        row = response.data["elections"][0]
+        self.assertIn("rank", row)
+        self.assertIn("turnout_percent", row)
+        self.assertNotIn("election_id", row)
+        self.assertNotIn("election_name", row)
+        self.assertNotIn("eligible_voters_count", row)
+        self.assertNotIn("voters_count", row)
+
+    def test_historical_trends_api_hides_sensitive_fields_for_user_role(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Public Trend Election",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=2),
+            end_at=now + timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        candidate = ElectionCandidate.objects.create(
+            election=election,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingService.issue_token(
+            election=election,
+            person=self.person1,
+            raw_token="public-trend-token",
+        )
+        VotingService.cast_vote(
+            election=election,
+            person=self.person1,
+            raw_token="public-trend-token",
+            candidate_ids=[candidate.id],
+            anonymous_key="public-trend-anon",
+        )
+        ElectionLifecycleService.close_election(election, force=True)
+
+        response = self.client.get(
+            reverse("api_historical_trends"),
+            {"window": 1},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
+        )
+        self.assertEqual(response.status_code, 200)
+        point = response.data["points"][0]
+        self.assertIn("sequence", point)
+        self.assertIn("turnout_percent", point)
+        self.assertNotIn("election_id", point)
+        self.assertNotIn("election_name", point)
+        self.assertNotIn("eligible_voters_count", point)
+        self.assertNotIn("voters_count", point)
+
+    def test_election_analytics_api_hides_sensitive_fields_for_user_role(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Public Analytics Election",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=2),
+            end_at=now + timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        candidate = ElectionCandidate.objects.create(
+            election=election,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingService.issue_token(
+            election=election,
+            person=self.person1,
+            raw_token="public-analytics-token",
+        )
+        VotingService.cast_vote(
+            election=election,
+            person=self.person1,
+            raw_token="public-analytics-token",
+            candidate_ids=[candidate.id],
+            anonymous_key="public-analytics-anon",
+        )
+        ElectionLifecycleService.close_election(election, force=True)
+
+        response = self.client.get(
+            reverse("api_election_analytics", kwargs={"election_id": election.id}),
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(set(response.data["kpi"].keys()), {"turnout_percent"})
+        self.assertIn("candidate_number", response.data["candidate_support"][0])
+        self.assertIn("votes_percent", response.data["candidate_support"][0])
+        self.assertNotIn("candidate_name", response.data["candidate_support"][0])
+        self.assertNotIn("votes_count", response.data["candidate_support"][0])
+        self.assertIn("unit_label", response.data["turnout_by_unit"][0])
+        self.assertNotIn("eligible_count", response.data["turnout_by_unit"][0])
+
     def test_results_api_respects_results_publish_at(self):
         now = timezone.now()
         election = ElectionLifecycleService.create_election_with_config(
