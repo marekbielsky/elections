@@ -5,11 +5,7 @@
 {% block content %}
     <h1>Użytkownicy i role</h1>
 
-    <p>Lista użytkowników z przypisanymi rolami biznesowymi (MVP).</p>
-    <p>
-        <strong>Aktywna rola:</strong> {{ actor_role }}<br>
-        <strong>Źródło roli:</strong> {{ actor_source }}
-    </p>
+    <p>Lista użytkowników z przypisanymi rolami.</p>
     <p>
         <a href="{% url 'admin_overview' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
             Wróć do panelu administracyjnego

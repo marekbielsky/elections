@@ -5,11 +5,7 @@
 {% block content %}
     <h1>Role i uprawnienia</h1>
 
-    <p>Zarządzanie mapowaniem ról biznesowych do uprawnień RBAC.</p>
-    <p>
-        <strong>Aktywna rola:</strong> {{ actor_role }}<br>
-        <strong>Źródło roli:</strong> {{ actor_source }}
-    </p>
+    <p>Zarządzanie mapowaniem ról do uprawnień.</p>
     <p>
         <a href="{% url 'admin_overview' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
             Wróć do panelu administracyjnego
