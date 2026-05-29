@@ -30,9 +30,29 @@ urlpatterns = [
         name="admin_users_roles",
     ),
     path(
+        "management/admin/users/assign-role/",
+        views.admin_user_role_assign_view,
+        name="admin_user_role_assign",
+    ),
+    path(
+        "management/admin/role-permissions/",
+        views.admin_role_permissions_view,
+        name="admin_role_permissions",
+    ),
+    path(
+        "management/admin/role-permissions/assign/",
+        views.admin_role_permission_assign_view,
+        name="admin_role_permission_assign",
+    ),
+    path(
         "management/admin/draft-elections/",
         views.admin_draft_elections_view,
         name="admin_draft_elections",
+    ),
+    path(
+        "management/admin/draft-elections/action/",
+        views.admin_election_lifecycle_action_view,
+        name="admin_election_lifecycle_action",
     ),
     path("api/elections/", ElectionCreateApiView.as_view(), name="api_election_create"),
     path("api/elections/<int:election_id>/", ElectionDetailApiView.as_view(), name="api_election_detail"),

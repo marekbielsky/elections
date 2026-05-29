@@ -19,8 +19,13 @@
             </a>
         </li>
         <li>
+            <a href="{% url 'admin_role_permissions' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+                Role i uprawnienia
+            </a>
+        </li>
+        <li>
             <a href="{% url 'admin_draft_elections' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
-                Wybory w statusie szkicu
+                Workflow cyklu życia wyborów
             </a>
         </li>
     </ul>

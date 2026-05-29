@@ -12,6 +12,7 @@ from .models import (
     OrganizationalUnit,
     Person,
 )
+from .rbac import PermissionCodes, RBACPermission
 from .services import ElectionLifecycleError, ElectionLifecycleService, VotingError, VotingService
 
 
@@ -89,6 +90,8 @@ def _serialize_election(election: Election) -> dict:
 
 
 class ElectionCreateApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.ELECTION_CREATE
     def post(self, request):
         serializer = ElectionCreateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -126,12 +129,16 @@ class ElectionCreateApiView(APIView):
 
 
 class ElectionDetailApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.ELECTION_READ
     def get(self, request, election_id: int):
         election = get_object_or_404(Election, id=election_id)
         return Response(_serialize_election(election), status=status.HTTP_200_OK)
 
 
 class ElectionResultsApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.RESULT_READ
     def get(self, request, election_id: int):
         election = get_object_or_404(Election, id=election_id)
         result = get_object_or_404(ElectionResult.objects.prefetch_related("items"), election=election)
@@ -156,6 +163,8 @@ class ElectionResultsApiView(APIView):
 
 
 class ElectionPublishApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.ELECTION_MANAGE_STATE
     def post(self, request, election_id: int):
         election = get_object_or_404(Election, id=election_id)
         try:
@@ -166,6 +175,8 @@ class ElectionPublishApiView(APIView):
 
 
 class ElectionStartApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.ELECTION_MANAGE_STATE
     def post(self, request, election_id: int):
         election = get_object_or_404(Election, id=election_id)
         try:
@@ -176,6 +187,8 @@ class ElectionStartApiView(APIView):
 
 
 class ElectionCloseApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.ELECTION_MANAGE_STATE
     def post(self, request, election_id: int):
         election = get_object_or_404(Election, id=election_id)
         serializer = CloseElectionRequestSerializer(data=request.data or {})
@@ -188,6 +201,8 @@ class ElectionCloseApiView(APIView):
 
 
 class IssueVotingTokenApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.VOTING_TOKEN_ISSUE
     def post(self, request, election_id: int):
         election = get_object_or_404(Election, id=election_id)
         serializer = IssueTokenRequestSerializer(data=request.data)
@@ -216,6 +231,8 @@ class IssueVotingTokenApiView(APIView):
 
 
 class CastVoteApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.VOTING_CAST
     def post(self, request, election_id: int):
         election = get_object_or_404(Election, id=election_id)
         serializer = CastVoteRequestSerializer(data=request.data)

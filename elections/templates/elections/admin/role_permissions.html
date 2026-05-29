@@ -1,0 +1,70 @@
+{% extends 'elections/base.html' %}
+
+{% block title %}Role i uprawnienia{% endblock %}
+
+{% block content %}
+    <h1>Role i uprawnienia</h1>
+
+    <p>Zarządzanie mapowaniem ról biznesowych do uprawnień RBAC.</p>
+    <p>
+        <strong>Aktywna rola:</strong> {{ actor_role }}<br>
+        <strong>Źródło roli:</strong> {{ actor_source }}
+    </p>
+    <p>
+        <a href="{% url 'admin_overview' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+            Wróć do panelu administracyjnego
+        </a>
+    </p>
+
+    <h3>Przypisz lub odbierz uprawnienie</h3>
+    <form method="post" action="{% url 'admin_role_permission_assign' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+        {% csrf_token %}
+        <label for="role_id">Rola:</label>
+        <select name="role_id" id="role_id">
+            {% for role in roles %}
+                <option value="{{ role.id }}">{{ role.code }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="permission_id">Uprawnienie:</label>
+        <select name="permission_id" id="permission_id">
+            {% for permission in permissions %}
+                <option value="{{ permission.id }}">{{ permission.code }}</option>
+            {% endfor %}
+        </select>
+
+        <label>
+            <input type="checkbox" name="grant" checked>
+            Nadaj uprawnienie (odznacz, aby odebrać)
+        </label>
+        <button type="submit">Zapisz</button>
+    </form>
+
+    {% if role_permission_rows %}
+        <h3>Aktualna macierz</h3>
+        <table border="1" cellpadding="8" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Rola</th>
+                    <th>Uprawnienia</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in role_permission_rows %}
+                    <tr>
+                        <td>{{ row.role_code }}</td>
+                        <td>
+                            {% for code in row.permission_codes %}
+                                {{ code }}{% if not forloop.last %}, {% endif %}
+                            {% empty %}
+                                Brak przypisanych uprawnień
+                            {% endfor %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Brak zdefiniowanych ról.</p>
+    {% endif %}
+{% endblock %}

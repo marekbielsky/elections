@@ -17,7 +17,10 @@ from .models import (
     ElectionStatus,
     ElectionType,
     Notification,
+    Permission,
     Person,
+    Role,
+    RolePermission,
     UserRole,
     VotingEligibility,
     VotingParticipation,
@@ -302,6 +305,160 @@ class AdminRoleMvpRoutesTests(TestCase):
         self.assertContains(response, "Panel administracyjny")
 
 
+class AdminWorkflowTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        user_model = get_user_model()
+        cls.admin_user = user_model.objects.create_user(
+            username="workflow_admin",
+            email="workflow_admin@example.com",
+            password="secret123",
+        )
+        cls.normal_user = user_model.objects.create_user(
+            username="workflow_user",
+            email="workflow_user@example.com",
+            password="secret123",
+        )
+        UserRole.objects.create(user=cls.admin_user, role=UserRole.Role.ADMIN)
+        UserRole.objects.create(user=cls.normal_user, role=UserRole.Role.USER)
+
+        cls.role_admin = Role.objects.create(code=UserRole.Role.ADMIN, name="Admin")
+        cls.role_user = Role.objects.create(code=UserRole.Role.USER, name="User")
+
+        cls.permission_assign_role = Permission.objects.create(
+            code="admin.role.assign",
+            name="Assign role",
+        )
+        cls.permission_manage_lifecycle = Permission.objects.create(
+            code="admin.election.lifecycle",
+            name="Manage election lifecycle",
+        )
+
+        cls.election_type = ElectionType.objects.create(code="WFLOW", name="Workflow Election")
+        cls.status_draft = ElectionStatus.objects.create(code="DRAFT", name="Draft")
+        cls.status_published = ElectionStatus.objects.create(code="PUBLISHED", name="Published")
+        cls.status_in_progress = ElectionStatus.objects.create(code="IN_PROGRESS", name="In progress")
+        cls.status_closed = ElectionStatus.objects.create(code="CLOSED", name="Closed")
+
+        now = timezone.now()
+        cls.election = Election.objects.create(
+            election_type=cls.election_type,
+            election_status=cls.status_draft,
+            name="Workflow Election 1",
+            created_by_user=cls.admin_user,
+        )
+        ElectionSchedule.objects.create(
+            election=cls.election,
+            start_at=now - timedelta(hours=1),
+            end_at=now + timedelta(hours=1),
+        )
+        VotingRule.objects.create(
+            election=cls.election,
+            min_choices=1,
+            max_choices=1,
+            allow_blank_vote=False,
+            allow_vote_change=False,
+        )
+
+    def test_admin_can_assign_user_role(self):
+        response = self.client.post(
+            reverse("admin_user_role_assign"),
+            {"user_id": self.normal_user.id, "role": UserRole.Role.AUDITOR},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.normal_user.role_profile.refresh_from_db()
+        self.assertEqual(self.normal_user.role_profile.role, UserRole.Role.AUDITOR)
+
+    def test_user_cannot_assign_user_role(self):
+        response = self.client.post(
+            reverse("admin_user_role_assign"),
+            {"user_id": self.normal_user.id, "role": UserRole.Role.ADMIN},
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_can_grant_and_revoke_role_permission(self):
+        grant_response = self.client.post(
+            reverse("admin_role_permission_assign"),
+            {"role_id": self.role_user.id, "permission_id": self.permission_assign_role.id, "grant": "on"},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(grant_response.status_code, 200)
+        self.assertTrue(
+            RolePermission.objects.filter(
+                role=self.role_user,
+                permission=self.permission_assign_role,
+            ).exists()
+        )
+
+        revoke_response = self.client.post(
+            reverse("admin_role_permission_assign"),
+            {"role_id": self.role_user.id, "permission_id": self.permission_assign_role.id},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(revoke_response.status_code, 200)
+        self.assertFalse(
+            RolePermission.objects.filter(
+                role=self.role_user,
+                permission=self.permission_assign_role,
+            ).exists()
+        )
+
+    def test_user_cannot_assign_role_permission(self):
+        response = self.client.post(
+            reverse("admin_role_permission_assign"),
+            {"role_id": self.role_user.id, "permission_id": self.permission_assign_role.id, "grant": "on"},
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_can_execute_election_lifecycle_actions(self):
+        publish_response = self.client.post(
+            reverse("admin_election_lifecycle_action"),
+            {"election_id": self.election.id, "action": "publish"},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(publish_response.status_code, 200)
+        self.election.refresh_from_db()
+        self.assertEqual(self.election.election_status.code, "PUBLISHED")
+
+        start_response = self.client.post(
+            reverse("admin_election_lifecycle_action"),
+            {"election_id": self.election.id, "action": "start"},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(start_response.status_code, 200)
+        self.election.refresh_from_db()
+        self.assertEqual(self.election.election_status.code, "IN_PROGRESS")
+
+        close_response = self.client.post(
+            reverse("admin_election_lifecycle_action"),
+            {"election_id": self.election.id, "action": "close", "force_close": "on"},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(close_response.status_code, 200)
+        self.election.refresh_from_db()
+        self.assertEqual(self.election.election_status.code, "CLOSED")
+
+    def test_user_cannot_execute_election_lifecycle_actions(self):
+        response = self.client.post(
+            reverse("admin_election_lifecycle_action"),
+            {"election_id": self.election.id, "action": "publish"},
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+
 class ElectionServicesTests(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -528,7 +685,12 @@ class ElectionApiEndpointsTests(APITestCase):
             "allow_blank_vote": False,
             "allow_vote_change": False,
         }
-        response = self.client.post(reverse("api_election_create"), payload, format="json")
+        response = self.client.post(
+            reverse("api_election_create"),
+            payload,
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["status"], "DRAFT")
         self.assertEqual(response.data["name"], "API Created Election")
@@ -544,11 +706,21 @@ class ElectionApiEndpointsTests(APITestCase):
             created_by_user=self.user,
         )
 
-        publish = self.client.post(reverse("api_election_publish", kwargs={"election_id": election.id}), {}, format="json")
+        publish = self.client.post(
+            reverse("api_election_publish", kwargs={"election_id": election.id}),
+            {},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
         self.assertEqual(publish.status_code, 200)
         self.assertEqual(publish.data["status"], "PUBLISHED")
 
-        start = self.client.post(reverse("api_election_start", kwargs={"election_id": election.id}), {}, format="json")
+        start = self.client.post(
+            reverse("api_election_start", kwargs={"election_id": election.id}),
+            {},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
         self.assertEqual(start.status_code, 200)
         self.assertEqual(start.data["status"], "IN_PROGRESS")
 
@@ -556,6 +728,7 @@ class ElectionApiEndpointsTests(APITestCase):
             reverse("api_election_close", kwargs={"election_id": election.id}),
             {"force": True},
             format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
         )
         self.assertEqual(close.status_code, 200)
         self.assertEqual(close.data["status"], "CLOSED")
@@ -594,6 +767,7 @@ class ElectionApiEndpointsTests(APITestCase):
             reverse("api_issue_voting_token", kwargs={"election_id": election.id}),
             {"person_id": self.person1.id, "raw_token": "api-vote-token"},
             format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
         )
         self.assertEqual(issue.status_code, 201)
 
@@ -606,6 +780,7 @@ class ElectionApiEndpointsTests(APITestCase):
                 "anonymous_key": "api-anon-key",
             },
             format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
         )
         self.assertEqual(vote.status_code, 201)
         self.assertEqual(vote.data["selected_candidate_ids"], [candidate1.id, candidate2.id])
@@ -646,5 +821,29 @@ class ElectionApiEndpointsTests(APITestCase):
                 "anonymous_key": "api-anon-key-2",
             },
             format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
         )
         self.assertEqual(vote.status_code, 400)
+
+    def test_create_election_api_forbidden_for_user_role(self):
+        now = timezone.now()
+        payload = {
+            "election_type_id": self.election_type.id,
+            "election_status_code": "DRAFT",
+            "name": "Forbidden Election Create",
+            "description": "Should fail",
+            "is_secret": True,
+            "start_at": (now + timedelta(hours=1)).isoformat(),
+            "end_at": (now + timedelta(hours=2)).isoformat(),
+            "min_choices": 1,
+            "max_choices": 1,
+            "allow_blank_vote": False,
+            "allow_vote_change": False,
+        }
+        response = self.client.post(
+            reverse("api_election_create"),
+            payload,
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
+        )
+        self.assertEqual(response.status_code, 403)

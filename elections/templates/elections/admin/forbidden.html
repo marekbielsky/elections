@@ -8,7 +8,7 @@
     <p>{{ detail }}</p>
     <p>
         <strong>Aktualna rola:</strong> {{ current_role }}<br>
-        <strong>Wymagana rola:</strong> {{ required_role }}
+        <strong>Wymagane uprawnienie:</strong> {{ required_permission }}
     </p>
 
     <h3>Tryb MVP (demo):</h3>
@@ -16,6 +16,7 @@
     <ul>
         <li><a href="{% url 'admin_overview' %}?demo_user=admin_demo">Panel administracyjny (demo admin)</a></li>
         <li><a href="{% url 'admin_users_roles' %}?demo_user=admin_demo">Użytkownicy i role (demo admin)</a></li>
+        <li><a href="{% url 'admin_role_permissions' %}?demo_user=admin_demo">Role i uprawnienia (demo admin)</a></li>
         <li><a href="{% url 'admin_draft_elections' %}?demo_user=admin_demo">Wybory w szkicu (demo admin)</a></li>
     </ul>
 {% endblock %}

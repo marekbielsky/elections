@@ -1,11 +1,11 @@
 {% extends 'elections/base.html' %}
 
-{% block title %}Wybory w szkicu{% endblock %}
+{% block title %}Workflow cyklu życia wyborów{% endblock %}
 
 {% block content %}
-    <h1>Wybory w statusie szkicu</h1>
+    <h1>Workflow cyklu życia wyborów</h1>
 
-    <p>Przegląd wyborów z kodem statusu <strong>DRAFT</strong>.</p>
+    <p>Zarządzaj przejściami statusów wyborów (DRAFT → PUBLISHED → IN_PROGRESS → CLOSED).</p>
     <p>
         <strong>Aktywna rola:</strong> {{ actor_role }}<br>
         <strong>Źródło roli:</strong> {{ actor_source }}
@@ -13,6 +13,11 @@
     <p>
         <a href="{% url 'admin_overview' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
             Wróć do panelu administracyjnego
+        </a>
+    </p>
+    <p>
+        <a href="{% url 'admin_role_permissions' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+            Przejdź do zarządzania rolami i uprawnieniami
         </a>
     </p>
 
@@ -24,6 +29,9 @@
                     <th>Nazwa</th>
                     <th>Typ wyborów (kod)</th>
                     <th>Status (kod)</th>
+                    <th>Start</th>
+                    <th>Koniec</th>
+                    <th>Akcja</th>
                 </tr>
             </thead>
             <tbody>
@@ -33,11 +41,29 @@
                         <td>{{ election.name }}</td>
                         <td>{{ election.election_type }}</td>
                         <td>{{ election.status }}</td>
+                        <td>{{ election.schedule_start|date:"Y-m-d H:i" }}</td>
+                        <td>{{ election.schedule_end|date:"Y-m-d H:i" }}</td>
+                        <td>
+                            <form method="post" action="{% url 'admin_election_lifecycle_action' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="election_id" value="{{ election.id }}">
+                                <select name="action">
+                                    <option value="publish" {% if election.status == 'DRAFT' %}selected{% endif %}>Opublikuj</option>
+                                    <option value="start" {% if election.status == 'PUBLISHED' %}selected{% endif %}>Rozpocznij</option>
+                                    <option value="close" {% if election.status == 'IN_PROGRESS' %}selected{% endif %}>Zamknij</option>
+                                </select>
+                                <label>
+                                    <input type="checkbox" name="force_close" value="true">
+                                    force close
+                                </label>
+                                <button type="submit">Wykonaj</button>
+                            </form>
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
     {% else %}
-        <p>Brak wyborów w statusie szkicu.</p>
+        <p>Brak wyborów do obsługi workflow.</p>
     {% endif %}
 {% endblock %}

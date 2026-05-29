@@ -15,19 +15,27 @@
             Wróć do panelu administracyjnego
         </a>
     </p>
+    <p>
+        <a href="{% url 'admin_role_permissions' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+            Przejdź do zarządzania uprawnieniami ról
+        </a>
+    </p>
 
     {% if users %}
         <table border="1" cellpadding="8" cellspacing="0">
             <thead>
                 <tr>
+                    <th>ID</th>
                     <th>Username</th>
                     <th>Email</th>
                     <th>Rola</th>
+                    <th>Akcja</th>
                 </tr>
             </thead>
             <tbody>
                 {% for user in users %}
                     <tr>
+                        <td>{{ user.id }}</td>
                         <td>{{ user.username }}</td>
                         <td>
                             {% if user.email %}
@@ -37,6 +45,18 @@
                             {% endif %}
                         </td>
                         <td>{{ user.role }}</td>
+                        <td>
+                            <form method="post" action="{% url 'admin_user_role_assign' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="user_id" value="{{ user.id }}">
+                                <select name="role">
+                                    <option value="ADMIN" {% if user.role == 'ADMIN' %}selected{% endif %}>ADMIN</option>
+                                    <option value="USER" {% if user.role == 'USER' %}selected{% endif %}>USER</option>
+                                    <option value="AUDITOR" {% if user.role == 'AUDITOR' %}selected{% endif %}>AUDITOR</option>
+                                </select>
+                                <button type="submit">Zapisz</button>
+                            </form>
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
