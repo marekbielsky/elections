@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,7 +14,13 @@ from .models import (
     Person,
 )
 from .rbac import PermissionCodes, RBACPermission
-from .services import ElectionLifecycleError, ElectionLifecycleService, VotingError, VotingService
+from .services import (
+    ElectionLifecycleError,
+    ElectionLifecycleService,
+    ElectionResultService,
+    VotingError,
+    VotingService,
+)
 
 
 class ElectionCreateRequestSerializer(serializers.Serializer):
@@ -141,7 +148,19 @@ class ElectionResultsApiView(APIView):
     required_permission_code = PermissionCodes.RESULT_READ
     def get(self, request, election_id: int):
         election = get_object_or_404(Election, id=election_id)
-        result = get_object_or_404(ElectionResult.objects.prefetch_related("items"), election=election)
+        if election.election_status.code != "CLOSED":
+            return Response(
+                {"detail": "Results are available only for closed elections."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if election.schedule.results_publish_at and timezone.now() < election.schedule.results_publish_at:
+            return Response(
+                {"detail": "Results are not published yet."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        result = ElectionResult.objects.filter(election=election).prefetch_related("items").first()
+        if result is None:
+            result = ElectionResultService.generate_results(election=election, is_final=True)
         payload = {
             "election_id": election.id,
             "calculated_at": result.calculated_at,
@@ -194,7 +213,11 @@ class ElectionCloseApiView(APIView):
         serializer = CloseElectionRequestSerializer(data=request.data or {})
         serializer.is_valid(raise_exception=True)
         try:
-            ElectionLifecycleService.close_election(election, force=serializer.validated_data["force"])
+            ElectionLifecycleService.close_election(
+                election,
+                force=serializer.validated_data["force"],
+                generated_by_user=request.user if request.user.is_authenticated else None,
+            )
         except ElectionLifecycleError as exc:
             raise serializers.ValidationError({"detail": str(exc)})
         return Response(_serialize_election(election), status=status.HTTP_200_OK)

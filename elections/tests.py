@@ -262,7 +262,7 @@ class AdminRoleMvpRoutesTests(TestCase):
     def test_admin_route_is_forbidden_for_non_admin(self):
         response = self.client.get(
             reverse("admin_overview"),
-            HTTP_X_DEMO_USER="mvp_user",
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
             HTTP_ACCEPT="application/json",
         )
         self.assertEqual(response.status_code, 403)
@@ -271,11 +271,11 @@ class AdminRoleMvpRoutesTests(TestCase):
     def test_admin_route_is_accessible_for_admin(self):
         response = self.client.get(
             reverse("admin_overview"),
-            HTTP_X_DEMO_USER="mvp_admin",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
             HTTP_ACCEPT="application/json",
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["actor_role"], UserRole.Role.ADMIN)
+        self.assertIn("summary", response.json())
 
     def test_admin_route_accepts_role_header_for_mvp_without_auth(self):
         response = self.client.get(
@@ -299,7 +299,7 @@ class AdminRoleMvpRoutesTests(TestCase):
     def test_admin_route_renders_html_for_browser_requests(self):
         response = self.client.get(
             reverse("admin_overview"),
-            {"demo_user": "mvp_admin"},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Panel administracyjny")
@@ -637,6 +637,63 @@ class ElectionServicesTests(TestCase):
                 anonymous_key="anon-invalid-choice",
             )
 
+    def test_close_election_generates_final_result_with_rankings(self):
+        self.election.election_status = self.status_in_progress
+        self.election.save(update_fields=["election_status"])
+        VotingEligibility.objects.create(
+            election=self.election,
+            person=self.person,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=self.election,
+            person=self.person2,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingService.issue_token(
+            election=self.election,
+            person=self.person,
+            raw_token="result-token-1",
+        )
+        VotingService.issue_token(
+            election=self.election,
+            person=self.person2,
+            raw_token="result-token-2",
+        )
+        VotingService.cast_vote(
+            election=self.election,
+            person=self.person,
+            raw_token="result-token-1",
+            candidate_ids=[self.candidate1.id],
+            anonymous_key="result-anon-1",
+        )
+        VotingService.cast_vote(
+            election=self.election,
+            person=self.person2,
+            raw_token="result-token-2",
+            candidate_ids=[self.candidate1.id],
+            anonymous_key="result-anon-2",
+        )
+
+        ElectionLifecycleService.close_election(self.election, force=True)
+        self.election.refresh_from_db()
+        self.assertEqual(self.election.election_status.code, "CLOSED")
+
+        result = self.election.result
+        self.assertTrue(result.is_final)
+        self.assertEqual(result.eligible_voters_count, 2)
+        self.assertEqual(result.voters_count, 2)
+        self.assertEqual(str(result.turnout_percent), "100.00")
+
+        items = list(result.items.order_by("ranking_position"))
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0].election_candidate_id, self.candidate1.id)
+        self.assertEqual(items[0].votes_count, 2)
+        self.assertEqual(str(items[0].votes_percent), "100.00")
+        self.assertEqual(items[1].election_candidate_id, self.candidate2.id)
+        self.assertEqual(items[1].votes_count, 0)
+        self.assertEqual(str(items[1].votes_percent), "0.00")
+
 
 class ElectionApiEndpointsTests(APITestCase):
     @classmethod
@@ -845,5 +902,43 @@ class ElectionApiEndpointsTests(APITestCase):
             payload,
             format="json",
             HTTP_X_USER_ROLE=UserRole.Role.USER,
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_results_api_rejects_non_closed_election(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Open Election Results",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=1),
+            end_at=now + timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        response = self.client.get(
+            reverse("api_election_results", kwargs={"election_id": election.id}),
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_results_api_respects_results_publish_at(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Publish Gate Election",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=2),
+            end_at=now - timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        election.schedule.results_publish_at = now + timedelta(hours=2)
+        election.schedule.save(update_fields=["results_publish_at"])
+        ElectionLifecycleService.close_election(election, force=True)
+
+        response = self.client.get(
+            reverse("api_election_results", kwargs={"election_id": election.id}),
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
         )
         self.assertEqual(response.status_code, 403)

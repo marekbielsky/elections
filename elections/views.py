@@ -27,13 +27,6 @@ def healthz_view(request):
     return HttpResponse("ok")
 
 
-def _redirect_with_demo_user(request, view_name):
-    demo_user = request.GET.get("demo_user", "").strip()
-    if demo_user:
-        return redirect(f"{view_name}?demo_user={demo_user}")
-    return redirect(view_name)
-
-
 def home_view(request):
     return render(request, "elections/home.html")
 
@@ -138,20 +131,9 @@ def admin_overview_view(request):
         "active_committees_count": OrganizationalUnit.objects.filter(is_active=True).count(),
         "candidates_count": ElectionCandidate.objects.count(),
     }
-    context = {
-        "actor_role": request.mvp_role,
-        "actor_source": request.mvp_role_source,
-        "summary": summary,
-        "demo_user": request.GET.get("demo_user", "").strip(),
-    }
+    context = {"summary": summary}
     if wants_json_response(request):
-        return JsonResponse(
-            {
-                "actor_role": context["actor_role"],
-                "actor_source": context["actor_source"],
-                "summary": context["summary"],
-            }
-        )
+        return JsonResponse({"summary": context["summary"]})
     return render(request, "elections/admin/overview.html", context)
 
 
@@ -174,32 +156,22 @@ def admin_users_roles_view(request):
                 "role": role_value,
             }
         )
-    context = {
-        "actor_role": request.mvp_role,
-        "actor_source": request.mvp_role_source,
-        "users": data,
-        "demo_user": request.GET.get("demo_user", "").strip(),
-    }
+    context = {"users": data}
     if wants_json_response(request):
-        return JsonResponse(
-            {
-                "actor_role": context["actor_role"],
-                "users": context["users"],
-            }
-        )
+        return JsonResponse({"users": context["users"]})
     return render(request, "elections/admin/users_roles.html", context)
 
 
 @require_permission(PermissionCodes.ADMIN_ROLE_ASSIGN)
 def admin_user_role_assign_view(request):
     if request.method != "POST":
-        return _redirect_with_demo_user(request, "admin_users_roles")
+        return redirect("admin_users_roles")
 
     form = UserRoleAssignmentForm(request.POST)
     if not form.is_valid():
         if wants_json_response(request):
             return JsonResponse({"errors": form.errors}, status=400)
-        return _redirect_with_demo_user(request, "admin_users_roles")
+        return redirect("admin_users_roles")
 
     user_model = get_user_model()
     user = get_object_or_404(user_model, id=form.cleaned_data["user_id"])
@@ -216,7 +188,7 @@ def admin_user_role_assign_view(request):
                 "role": role_profile.role,
             }
         )
-    return _redirect_with_demo_user(request, "admin_users_roles")
+    return redirect("admin_users_roles")
 
 
 @require_permission(PermissionCodes.ADMIN_USERS_VIEW)
@@ -234,18 +206,14 @@ def admin_role_permissions_view(request):
         for role in roles
     ]
     context = {
-        "actor_role": request.mvp_role,
-        "actor_source": request.mvp_role_source,
         "roles": roles,
         "permissions": permissions,
         "role_permission_rows": role_permission_rows,
         "assignment_form": RolePermissionAssignmentForm(),
-        "demo_user": request.GET.get("demo_user", "").strip(),
     }
     if wants_json_response(request):
         return JsonResponse(
             {
-                "actor_role": context["actor_role"],
                 "roles": [
                     {
                         "id": row["role_id"],
@@ -262,13 +230,13 @@ def admin_role_permissions_view(request):
 @require_permission(PermissionCodes.ADMIN_PERMISSION_ASSIGN)
 def admin_role_permission_assign_view(request):
     if request.method != "POST":
-        return _redirect_with_demo_user(request, "admin_role_permissions")
+        return redirect("admin_role_permissions")
 
     form = RolePermissionAssignmentForm(request.POST)
     if not form.is_valid():
         if wants_json_response(request):
             return JsonResponse({"errors": form.errors}, status=400)
-        return _redirect_with_demo_user(request, "admin_role_permissions")
+        return redirect("admin_role_permissions")
 
     role = form.cleaned_data["role_id"]
     permission = form.cleaned_data["permission_id"]
@@ -299,7 +267,7 @@ def admin_role_permission_assign_view(request):
                 "created": created,
             }
         )
-    return _redirect_with_demo_user(request, "admin_role_permissions")
+    return redirect("admin_role_permissions")
 
 
 @require_permission(PermissionCodes.ELECTION_DRAFT_VIEW)
@@ -320,32 +288,22 @@ def admin_draft_elections_view(request):
         }
         for election in drafts
     ]
-    context = {
-        "actor_role": request.mvp_role,
-        "actor_source": request.mvp_role_source,
-        "draft_elections": data,
-        "demo_user": request.GET.get("demo_user", "").strip(),
-    }
+    context = {"draft_elections": data}
     if wants_json_response(request):
-        return JsonResponse(
-            {
-                "actor_role": context["actor_role"],
-                "draft_elections": context["draft_elections"],
-            }
-        )
+        return JsonResponse({"draft_elections": context["draft_elections"]})
     return render(request, "elections/admin/draft_elections.html", context)
 
 
 @require_permission(PermissionCodes.ADMIN_ELECTION_LIFECYCLE)
 def admin_election_lifecycle_action_view(request):
     if request.method != "POST":
-        return _redirect_with_demo_user(request, "admin_draft_elections")
+        return redirect("admin_draft_elections")
 
     form = ElectionLifecycleActionForm(request.POST)
     if not form.is_valid():
         if wants_json_response(request):
             return JsonResponse({"errors": form.errors}, status=400)
-        return _redirect_with_demo_user(request, "admin_draft_elections")
+        return redirect("admin_draft_elections")
 
     election = get_object_or_404(
         Election.objects.select_related("election_status"),
@@ -360,15 +318,19 @@ def admin_election_lifecycle_action_view(request):
         elif action == "start":
             election = ElectionLifecycleService.start_election(election)
         elif action == "close":
-            election = ElectionLifecycleService.close_election(election, force=force_close)
+            election = ElectionLifecycleService.close_election(
+                election,
+                force=force_close,
+                generated_by_user=request.user if request.user.is_authenticated else None,
+            )
         else:
             if wants_json_response(request):
                 return JsonResponse({"detail": "Unsupported action."}, status=400)
-            return _redirect_with_demo_user(request, "admin_draft_elections")
+            return redirect("admin_draft_elections")
     except ElectionLifecycleError as exc:
         if wants_json_response(request):
             return JsonResponse({"detail": str(exc)}, status=400)
-        return _redirect_with_demo_user(request, "admin_draft_elections")
+        return redirect("admin_draft_elections")
 
     if wants_json_response(request):
         return JsonResponse(
@@ -379,4 +341,4 @@ def admin_election_lifecycle_action_view(request):
                 "new_status": election.election_status.code,
             }
         )
-    return _redirect_with_demo_user(request, "admin_draft_elections")
+    return redirect("admin_draft_elections")

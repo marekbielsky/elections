@@ -10,18 +10,18 @@
     <h3>Szybkie przejścia:</h3>
     <ul>
         <li>
-            <a href="{% url 'admin_users_roles' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+            <a href="{% url 'admin_users_roles' %}">
                 Użytkownicy i role
             </a>
         </li>
         <li>
-            <a href="{% url 'admin_role_permissions' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+            <a href="{% url 'admin_role_permissions' %}">
                 Role i uprawnienia
             </a>
         </li>
         <li>
-            <a href="{% url 'admin_draft_elections' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
-                Workflow cyklu życia wyborów
+            <a href="{% url 'admin_draft_elections' %}">
+                Cykl życia wyborów
             </a>
         </li>
     </ul>

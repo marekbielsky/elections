@@ -71,14 +71,6 @@ def wants_json_response(request: HttpRequest) -> bool:
 
 
 def _resolve_role_code(request: HttpRequest) -> tuple[str, str]:
-    demo_username = (
-        request.headers.get("X-Demo-User", "").strip()
-        or request.GET.get("demo_user", "").strip()
-    )
-    if demo_username:
-        role_profile = UserRole.objects.filter(user__username=demo_username).first()
-        if role_profile:
-            return role_profile.role, demo_username
 
     if request.user.is_authenticated:
         role_profile = UserRole.objects.filter(user=request.user).first()

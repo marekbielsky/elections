@@ -1,13 +1,18 @@
 import secrets
+from decimal import Decimal, ROUND_HALF_UP
 from dataclasses import dataclass
 from typing import Iterable
 
 from django.db import transaction
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from .models import (
     Ballot,
     BallotSelection,
+    ElectionCandidate,
+    ElectionResult,
+    ElectionResultItem,
     Election,
     ElectionSchedule,
     ElectionStatus,
@@ -100,13 +105,24 @@ class ElectionLifecycleService:
         return election
 
     @staticmethod
-    def close_election(election: Election, *, at_time=None, force: bool = False) -> Election:
+    def close_election(
+        election: Election,
+        *,
+        at_time=None,
+        force: bool = False,
+        generated_by_user=None,
+    ) -> Election:
         ElectionLifecycleService._ensure_status(election, allowed={"IN_PROGRESS", "PUBLISHED"})
         now = at_time or timezone.now()
         if not force and now < election.schedule.end_at:
             raise ElectionLifecycleError("Election cannot be closed before configured end time.")
         election.election_status = ElectionLifecycleService._status_by_code("CLOSED")
         election.save(update_fields=["election_status", "updated_at"])
+        ElectionResultService.generate_results(
+            election=election,
+            generated_by_user=generated_by_user,
+            is_final=True,
+        )
         return election
 
     @staticmethod
@@ -296,3 +312,94 @@ class VotingService:
         if len(valid_ids) != len(selected_ids):
             raise VotingError("One or more selected candidates are invalid for this election.")
         return selected_ids
+
+
+class ElectionResultService:
+    @staticmethod
+    def generate_results(*, election: Election, generated_by_user=None, is_final: bool = True) -> ElectionResult:
+        if election.election_status.code != "CLOSED":
+            raise ElectionLifecycleError("Results can be generated only for closed elections.")
+
+        with transaction.atomic():
+            election = (
+                Election.objects.select_related("election_status")
+                .select_for_update()
+                .get(id=election.id)
+            )
+            if election.election_status.code != "CLOSED":
+                raise ElectionLifecycleError("Results can be generated only for closed elections.")
+
+            eligible_voters_count = (
+                VotingEligibility.objects.filter(
+                    election=election,
+                    eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+                )
+                .values("person_id")
+                .distinct()
+                .count()
+            )
+            voters_count = (
+                VotingParticipation.objects.filter(election=election, has_voted=True)
+                .values("person_id")
+                .distinct()
+                .count()
+            )
+            turnout_percent = ElectionResultService._calculate_percent(
+                numerator=voters_count,
+                denominator=eligible_voters_count,
+            )
+
+            result, _ = ElectionResult.objects.update_or_create(
+                election=election,
+                defaults={
+                    "calculated_at": timezone.now(),
+                    "eligible_voters_count": eligible_voters_count,
+                    "voters_count": voters_count,
+                    "turnout_percent": turnout_percent,
+                    "is_final": is_final,
+                    "generated_by_user": generated_by_user,
+                },
+            )
+
+            candidate_rows = list(
+                ElectionCandidate.objects.filter(election=election, is_approved=True)
+                .annotate(
+                    votes_count=Count(
+                        "ballot_selections",
+                        filter=Q(
+                            ballot_selections__ballot__election=election,
+                            ballot_selections__ballot__ballot_status=Ballot.BallotStatus.SUBMITTED,
+                        ),
+                    )
+                )
+                .order_by("-votes_count", "candidate_number", "id")
+            )
+            total_votes_cast = sum(candidate.votes_count for candidate in candidate_rows)
+
+            result.items.all().delete()
+            ElectionResultItem.objects.bulk_create(
+                [
+                    ElectionResultItem(
+                        election_result=result,
+                        election_candidate=candidate,
+                        votes_count=candidate.votes_count,
+                        votes_percent=ElectionResultService._calculate_percent(
+                            numerator=candidate.votes_count,
+                            denominator=total_votes_cast,
+                        ),
+                        ranking_position=index + 1,
+                    )
+                    for index, candidate in enumerate(candidate_rows)
+                ]
+            )
+
+            return result
+
+    @staticmethod
+    def _calculate_percent(*, numerator: int, denominator: int) -> Decimal:
+        if denominator <= 0:
+            return Decimal("0.00")
+        return (Decimal(numerator) * Decimal("100") / Decimal(denominator)).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )

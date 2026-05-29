@@ -7,12 +7,12 @@
 
     <p>Lista użytkowników z przypisanymi rolami.</p>
     <p>
-        <a href="{% url 'admin_overview' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+        <a href="{% url 'admin_overview' %}">
             Wróć do panelu administracyjnego
         </a>
     </p>
     <p>
-        <a href="{% url 'admin_role_permissions' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+        <a href="{% url 'admin_role_permissions' %}">
             Przejdź do zarządzania uprawnieniami ról
         </a>
     </p>
@@ -42,7 +42,7 @@
                         </td>
                         <td>{{ user.role }}</td>
                         <td>
-                            <form method="post" action="{% url 'admin_user_role_assign' %}{% if demo_user %}?demo_user={{ demo_user }}{% endif %}">
+                            <form method="post" action="{% url 'admin_user_role_assign' %}">
                                 {% csrf_token %}
                                 <input type="hidden" name="user_id" value="{{ user.id }}">
                                 <select name="role">
