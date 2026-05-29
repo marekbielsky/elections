@@ -924,6 +924,142 @@ class ElectionApiEndpointsTests(APITestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_top_turnout_elections_api_returns_ranked_data(self):
+        now = timezone.now()
+
+        election_high = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Turnout High",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=3),
+            end_at=now + timedelta(hours=2),
+            created_by_user=self.user,
+        )
+        election_mid = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Turnout Mid",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=3),
+            end_at=now + timedelta(hours=2),
+            created_by_user=self.user,
+        )
+        election_hidden = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Turnout Hidden",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=3),
+            end_at=now + timedelta(hours=2),
+            created_by_user=self.user,
+        )
+        election_hidden.schedule.results_publish_at = now + timedelta(hours=1)
+        election_hidden.schedule.save(update_fields=["results_publish_at"])
+
+        high_candidate = ElectionCandidate.objects.create(
+            election=election_high,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        mid_candidate = ElectionCandidate.objects.create(
+            election=election_mid,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        hidden_candidate = ElectionCandidate.objects.create(
+            election=election_hidden,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+
+        VotingEligibility.objects.create(
+            election=election_high,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=election_mid,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=election_mid,
+            person=self.person2,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=election_hidden,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+
+        VotingService.issue_token(
+            election=election_high,
+            person=self.person1,
+            raw_token="top-high-token",
+        )
+        VotingService.cast_vote(
+            election=election_high,
+            person=self.person1,
+            raw_token="top-high-token",
+            candidate_ids=[high_candidate.id],
+            anonymous_key="top-high-anon",
+        )
+
+        VotingService.issue_token(
+            election=election_mid,
+            person=self.person1,
+            raw_token="top-mid-token",
+        )
+        VotingService.cast_vote(
+            election=election_mid,
+            person=self.person1,
+            raw_token="top-mid-token",
+            candidate_ids=[mid_candidate.id],
+            anonymous_key="top-mid-anon",
+        )
+
+        VotingService.issue_token(
+            election=election_hidden,
+            person=self.person1,
+            raw_token="top-hidden-token",
+        )
+        VotingService.cast_vote(
+            election=election_hidden,
+            person=self.person1,
+            raw_token="top-hidden-token",
+            candidate_ids=[hidden_candidate.id],
+            anonymous_key="top-hidden-anon",
+        )
+
+        ElectionLifecycleService.close_election(election_high, force=True)
+        ElectionLifecycleService.close_election(election_mid, force=True)
+        ElectionLifecycleService.close_election(election_hidden, force=True)
+
+        response = self.client.get(
+            reverse("api_top_turnout_elections"),
+            {"top_n": 2},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["top_n"], 2)
+        self.assertEqual(len(response.data["elections"]), 2)
+        self.assertEqual(response.data["elections"][0]["election_id"], election_high.id)
+        self.assertEqual(response.data["elections"][0]["turnout_percent"], "100.00")
+        self.assertEqual(response.data["elections"][1]["election_id"], election_mid.id)
+        self.assertEqual(response.data["elections"][1]["turnout_percent"], "50.00")
+
+    def test_top_turnout_elections_api_rejects_invalid_top_n(self):
+        response = self.client.get(
+            reverse("api_top_turnout_elections"),
+            {"top_n": "invalid"},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_results_api_respects_results_publish_at(self):
         now = timezone.now()
         election = ElectionLifecycleService.create_election_with_config(
@@ -952,7 +1088,7 @@ class ElectionApiEndpointsTests(APITestCase):
             name="PDF Report Election",
             election_status=self.status_in_progress,
             start_at=now - timedelta(hours=2),
-            end_at=now - timedelta(hours=1),
+            end_at=now + timedelta(hours=1),
             created_by_user=self.user,
         )
         candidate = ElectionCandidate.objects.create(
@@ -1011,7 +1147,7 @@ class ElectionApiEndpointsTests(APITestCase):
             name="Analytics Election",
             election_status=self.status_in_progress,
             start_at=now - timedelta(hours=3),
-            end_at=now - timedelta(hours=2),
+            end_at=now + timedelta(hours=2),
             created_by_user=self.user,
         )
         unit = OrganizationalUnit.objects.create(name="Faculty A", unit_type="FACULTY")

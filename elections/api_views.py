@@ -461,3 +461,65 @@ class ElectionAnalyticsApiView(APIView):
         if denominator <= 0:
             return "0.00"
         return f"{(numerator * 100.0 / denominator):.2f}"
+
+
+class TopTurnoutElectionsApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.RESULT_READ
+
+    def get(self, request):
+        top_n = request.query_params.get("top_n", "5")
+        try:
+            top_n_int = int(top_n)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "top_n must be an integer between 1 and 100."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if top_n_int < 1 or top_n_int > 100:
+            return Response(
+                {"detail": "top_n must be an integer between 1 and 100."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        now = timezone.now()
+        closed_published_elections = Election.objects.select_related("schedule").filter(
+            election_status__code="CLOSED"
+        ).filter(
+            Q(schedule__results_publish_at__isnull=True) | Q(schedule__results_publish_at__lte=now)
+        )
+        for election in closed_published_elections.filter(result__isnull=True):
+            ElectionResultService.generate_results(election=election, is_final=True)
+
+        ranked_results = ElectionResult.objects.select_related(
+            "election",
+            "election__election_type",
+            "election__schedule",
+        ).filter(
+            election__election_status__code="CLOSED"
+        ).filter(
+            Q(election__schedule__results_publish_at__isnull=True)
+            | Q(election__schedule__results_publish_at__lte=now)
+        ).order_by(
+            "-turnout_percent",
+            "-voters_count",
+            "election__name",
+        )[:top_n_int]
+
+        payload = {
+            "top_n": top_n_int,
+            "elections": [
+                {
+                    "rank": index,
+                    "election_id": result.election_id,
+                    "election_name": result.election.name,
+                    "election_type": result.election.election_type.code,
+                    "eligible_voters_count": result.eligible_voters_count,
+                    "voters_count": result.voters_count,
+                    "turnout_percent": str(result.turnout_percent),
+                    "calculated_at": result.calculated_at,
+                }
+                for index, result in enumerate(ranked_results, start=1)
+            ],
+        }
+        return Response(payload, status=status.HTTP_200_OK)
