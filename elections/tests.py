@@ -1043,6 +1043,102 @@ class ElectionApiEndpointsTests(APITestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_election_calendar_reminders_api_returns_upcoming_events_within_horizon(self):
+        now = timezone.now()
+        upcoming = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Reminder Upcoming",
+            election_status=self.status_published,
+            start_at=now + timedelta(hours=6),
+            end_at=now + timedelta(hours=12),
+            created_by_user=self.user,
+        )
+        ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Reminder Far Future",
+            election_status=self.status_published,
+            start_at=now + timedelta(hours=96),
+            end_at=now + timedelta(hours=120),
+            created_by_user=self.user,
+        )
+        ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Reminder In Past",
+            election_status=self.status_published,
+            start_at=now - timedelta(hours=12),
+            end_at=now - timedelta(hours=1),
+            created_by_user=self.user,
+        )
+
+        response = self.client.get(
+            reverse("api_election_calendar_reminders"),
+            {"within_hours": 24},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["within_hours"], 24)
+        returned_ids = {row["election_id"] for row in response.data["reminders"]}
+        self.assertEqual(returned_ids, {upcoming.id})
+        self.assertGreaterEqual(response.data["reminders"][0]["hours_until_event"], 0)
+
+    def test_election_calendar_reminders_api_supports_type_and_unit_filters(self):
+        now = timezone.now()
+        extra_type = ElectionType.objects.create(code="API_REM_ALT", name="Reminder Alt")
+        target_unit = OrganizationalUnit.objects.create(name="Reminder Unit Target", unit_type="FACULTY")
+        other_unit = OrganizationalUnit.objects.create(name="Reminder Unit Other", unit_type="FACULTY")
+
+        target = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Reminder Filter Target",
+            election_status=self.status_published,
+            start_at=now + timedelta(hours=4),
+            end_at=now + timedelta(hours=8),
+            created_by_user=self.user,
+            organizational_unit=target_unit,
+        )
+        ElectionLifecycleService.create_election_with_config(
+            election_type=extra_type,
+            name="Reminder Wrong Type",
+            election_status=self.status_published,
+            start_at=now + timedelta(hours=4),
+            end_at=now + timedelta(hours=8),
+            created_by_user=self.user,
+            organizational_unit=target_unit,
+        )
+        ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Reminder Wrong Unit",
+            election_status=self.status_published,
+            start_at=now + timedelta(hours=4),
+            end_at=now + timedelta(hours=8),
+            created_by_user=self.user,
+            organizational_unit=other_unit,
+        )
+
+        response = self.client.get(
+            reverse("api_election_calendar_reminders"),
+            {
+                "within_hours": 24,
+                "election_type": self.election_type.code,
+                "organizational_unit_id": target_unit.id,
+            },
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        returned_ids = {row["election_id"] for row in response.data["reminders"]}
+        self.assertEqual(returned_ids, {target.id})
+
+    def test_election_calendar_reminders_api_rejects_invalid_within_hours(self):
+        response = self.client.get(
+            reverse("api_election_calendar_reminders"),
+            {"within_hours": "invalid"},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_top_turnout_elections_api_returns_ranked_data(self):
         now = timezone.now()
 

@@ -36,6 +36,49 @@ PRIVILEGED_DASHBOARD_ROLES = {UserRole.Role.ADMIN, UserRole.Role.AUDITOR}
 def _is_public_dashboard_role(request) -> bool:
     return getattr(request, "mvp_role", UserRole.Role.USER) not in PRIVILEGED_DASHBOARD_ROLES
 
+def _calendar_events_from_elections(elections) -> list[dict]:
+    events = []
+    for election in elections:
+        schedule = getattr(election, "schedule", None)
+        if schedule is None:
+            continue
+        events.append(
+            {
+                "event_type": "ELECTION_START",
+                "event_at": schedule.start_at,
+                "election_id": election.id,
+                "election_name": election.name,
+                "election_type": election.election_type.code,
+                "election_status": election.election_status.code,
+                "organizational_unit_id": election.organizational_unit_id,
+            }
+        )
+        events.append(
+            {
+                "event_type": "ELECTION_END",
+                "event_at": schedule.end_at,
+                "election_id": election.id,
+                "election_name": election.name,
+                "election_type": election.election_type.code,
+                "election_status": election.election_status.code,
+                "organizational_unit_id": election.organizational_unit_id,
+            }
+        )
+        if schedule.results_publish_at:
+            events.append(
+                {
+                    "event_type": "RESULTS_PUBLISH",
+                    "event_at": schedule.results_publish_at,
+                    "election_id": election.id,
+                    "election_name": election.name,
+                    "election_type": election.election_type.code,
+                    "election_status": election.election_status.code,
+                    "organizational_unit_id": election.organizational_unit_id,
+                }
+            )
+    events.sort(key=lambda item: (item["event_at"], item["election_id"], item["event_type"]))
+    return events
+
 
 class ElectionCreateRequestSerializer(serializers.Serializer):
     election_type_id = serializers.IntegerField()
@@ -160,8 +203,8 @@ class ElectionDetailApiView(APIView):
 class ElectionCalendarEventsApiView(APIView):
     permission_classes = [RBACPermission]
     required_permission_code = PermissionCodes.ELECTION_READ
-
-    def get(self, request):
+    @staticmethod
+    def _filtered_elections(request):
         elections = Election.objects.select_related(
             "schedule",
             "election_type",
@@ -176,54 +219,64 @@ class ElectionCalendarEventsApiView(APIView):
             try:
                 organizational_unit_id_int = int(organizational_unit_id)
             except ValueError:
-                return Response(
+                return None, Response(
                     {"detail": "organizational_unit_id must be an integer."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             elections = elections.filter(organizational_unit_id=organizational_unit_id_int)
+        return elections, None
 
-        events = []
-        for election in elections:
-            schedule = getattr(election, "schedule", None)
-            if schedule is None:
-                continue
-            events.append(
-                {
-                    "event_type": "ELECTION_START",
-                    "event_at": schedule.start_at,
-                    "election_id": election.id,
-                    "election_name": election.name,
-                    "election_type": election.election_type.code,
-                    "election_status": election.election_status.code,
-                    "organizational_unit_id": election.organizational_unit_id,
-                }
-            )
-            events.append(
-                {
-                    "event_type": "ELECTION_END",
-                    "event_at": schedule.end_at,
-                    "election_id": election.id,
-                    "election_name": election.name,
-                    "election_type": election.election_type.code,
-                    "election_status": election.election_status.code,
-                    "organizational_unit_id": election.organizational_unit_id,
-                }
-            )
-            if schedule.results_publish_at:
-                events.append(
-                    {
-                        "event_type": "RESULTS_PUBLISH",
-                        "event_at": schedule.results_publish_at,
-                        "election_id": election.id,
-                        "election_name": election.name,
-                        "election_type": election.election_type.code,
-                        "election_status": election.election_status.code,
-                        "organizational_unit_id": election.organizational_unit_id,
-                    }
-                )
-
-        events.sort(key=lambda item: (item["event_at"], item["election_id"], item["event_type"]))
+    def get(self, request):
+        elections, error_response = self._filtered_elections(request)
+        if error_response:
+            return error_response
+        events = _calendar_events_from_elections(elections)
         return Response({"events": events}, status=status.HTTP_200_OK)
+
+class ElectionUpcomingRemindersApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.ELECTION_READ
+
+    def get(self, request):
+        within_hours = request.query_params.get("within_hours", "72")
+        try:
+            within_hours_int = int(within_hours)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "within_hours must be an integer between 1 and 720."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if within_hours_int < 1 or within_hours_int > 720:
+            return Response(
+                {"detail": "within_hours must be an integer between 1 and 720."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        elections, error_response = ElectionCalendarEventsApiView._filtered_elections(request)
+        if error_response:
+            return error_response
+
+        now = timezone.now()
+        horizon = now + timezone.timedelta(hours=within_hours_int)
+        reminders = []
+        for event in _calendar_events_from_elections(elections):
+            if event["event_at"] <= now or event["event_at"] > horizon:
+                continue
+            remaining_seconds = (event["event_at"] - now).total_seconds()
+            reminders.append(
+                {
+                    **event,
+                    "hours_until_event": round(remaining_seconds / 3600, 2),
+                }
+            )
+        return Response(
+            {
+                "generated_at": now,
+                "within_hours": within_hours_int,
+                "reminders": reminders,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ElectionResultsApiView(APIView):
