@@ -2,18 +2,22 @@ from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.http import FileResponse
+from django.db.models import Count, Q
 from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
     Election,
+    ElectionCandidate,
     ElectionResult,
     ElectionStatus,
     ElectionType,
     GeneratedDocument,
     OrganizationalUnit,
     Person,
+    VotingEligibility,
+    VotingParticipation,
 )
 from .rbac import PermissionCodes, RBACPermission
 from .services import (
@@ -334,3 +338,126 @@ class GeneratedDocumentDownloadApiView(APIView):
             filename=document.stored_file.original_file_name,
             content_type=document.stored_file.mime_type or "application/octet-stream",
         )
+
+
+class ElectionAnalyticsApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.RESULT_READ
+
+    def get(self, request, election_id: int):
+        election = get_object_or_404(Election.objects.select_related("schedule", "election_status"), id=election_id)
+        if election.election_status.code != "CLOSED":
+            return Response(
+                {"detail": "Analytics are available only for closed elections."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if election.schedule.results_publish_at and timezone.now() < election.schedule.results_publish_at:
+            return Response(
+                {"detail": "Results are not published yet."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        eligible_total = (
+            VotingEligibility.objects.filter(
+                election=election,
+                eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+            )
+            .values("person_id")
+            .distinct()
+            .count()
+        )
+        voters_total = (
+            VotingParticipation.objects.filter(election=election, has_voted=True)
+            .values("person_id")
+            .distinct()
+            .count()
+        )
+
+        candidate_rows = list(
+            ElectionCandidate.objects.filter(election=election, is_approved=True)
+            .annotate(
+                votes_count=Count(
+                    "ballot_selections",
+                    filter=Q(
+                        ballot_selections__ballot__election=election,
+                        ballot_selections__ballot__ballot_status="SUBMITTED",
+                    ),
+                )
+            )
+            .order_by("-votes_count", "candidate_number", "id")
+        )
+        total_votes_cast = sum(row.votes_count for row in candidate_rows)
+        candidate_support = [
+            {
+                "candidate_id": row.id,
+                "candidate_number": row.candidate_number,
+                "candidate_name": f"{row.person.first_name} {row.person.last_name}",
+                "votes_count": row.votes_count,
+                "votes_percent": self._percent(row.votes_count, total_votes_cast),
+            }
+            for row in candidate_rows
+        ]
+
+        eligible_by_unit_rows = (
+            VotingEligibility.objects.filter(
+                election=election,
+                eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+            )
+            .values("person__organizational_unit_id", "person__organizational_unit__name")
+            .annotate(eligible_count=Count("person_id", distinct=True))
+        )
+        voted_by_unit_rows = (
+            VotingParticipation.objects.filter(election=election, has_voted=True)
+            .values("person__organizational_unit_id", "person__organizational_unit__name")
+            .annotate(voted_count=Count("person_id", distinct=True))
+        )
+
+        unit_metrics: dict[int | None, dict] = {}
+        for row in eligible_by_unit_rows:
+            unit_id = row["person__organizational_unit_id"]
+            unit_metrics[unit_id] = {
+                "unit_id": unit_id,
+                "unit_name": row["person__organizational_unit__name"] or "Unassigned",
+                "eligible_count": row["eligible_count"],
+                "voted_count": 0,
+            }
+        for row in voted_by_unit_rows:
+            unit_id = row["person__organizational_unit_id"]
+            metric = unit_metrics.setdefault(
+                unit_id,
+                {
+                    "unit_id": unit_id,
+                    "unit_name": row["person__organizational_unit__name"] or "Unassigned",
+                    "eligible_count": 0,
+                    "voted_count": 0,
+                },
+            )
+            metric["voted_count"] = row["voted_count"]
+
+        turnout_by_unit = []
+        for metric in sorted(unit_metrics.values(), key=lambda row: (row["unit_name"], row["unit_id"] or 0)):
+            turnout_by_unit.append(
+                {
+                    **metric,
+                    "turnout_percent": self._percent(metric["voted_count"], metric["eligible_count"]),
+                }
+            )
+
+        payload = {
+            "election_id": election.id,
+            "kpi": {
+                "eligible_voters_count": eligible_total,
+                "voters_count": voters_total,
+                "turnout_percent": self._percent(voters_total, eligible_total),
+                "total_votes_cast": total_votes_cast,
+            },
+            "candidate_support": candidate_support,
+            "turnout_by_unit": turnout_by_unit,
+        }
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _percent(numerator: int, denominator: int) -> str:
+        if denominator <= 0:
+            return "0.00"
+        return f"{(numerator * 100.0 / denominator):.2f}"

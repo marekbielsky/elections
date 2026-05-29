@@ -18,6 +18,7 @@ from .models import (
     ElectionStatus,
     ElectionType,
     Notification,
+    OrganizationalUnit,
     Permission,
     Person,
     Role,
@@ -1002,3 +1003,85 @@ class ElectionApiEndpointsTests(APITestCase):
         self.assertEqual(download_response.status_code, 200)
         pdf_bytes = b"".join(download_response.streaming_content)
         self.assertTrue(pdf_bytes.startswith(b"%PDF-1.4"))
+
+    def test_analytics_api_returns_kpi_and_candidate_support(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Analytics Election",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=3),
+            end_at=now - timedelta(hours=2),
+            created_by_user=self.user,
+        )
+        unit = OrganizationalUnit.objects.create(name="Faculty A", unit_type="FACULTY")
+        self.person1.organizational_unit = unit
+        self.person1.save(update_fields=["organizational_unit"])
+
+        candidate1 = ElectionCandidate.objects.create(
+            election=election,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        candidate2 = ElectionCandidate.objects.create(
+            election=election,
+            person=self.person2,
+            candidate_number=2,
+            is_approved=True,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=self.person2,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingService.issue_token(
+            election=election,
+            person=self.person1,
+            raw_token="analytics-token",
+        )
+        VotingService.cast_vote(
+            election=election,
+            person=self.person1,
+            raw_token="analytics-token",
+            candidate_ids=[candidate1.id],
+            anonymous_key="analytics-anon",
+        )
+        ElectionLifecycleService.close_election(election, force=True)
+
+        response = self.client.get(
+            reverse("api_election_analytics", kwargs={"election_id": election.id}),
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["kpi"]["eligible_voters_count"], 2)
+        self.assertEqual(response.data["kpi"]["voters_count"], 1)
+        self.assertEqual(response.data["kpi"]["turnout_percent"], "50.00")
+        self.assertEqual(len(response.data["candidate_support"]), 2)
+        self.assertEqual(response.data["candidate_support"][0]["candidate_id"], candidate1.id)
+        self.assertEqual(response.data["candidate_support"][0]["votes_count"], 1)
+        self.assertEqual(response.data["candidate_support"][1]["candidate_id"], candidate2.id)
+        self.assertEqual(response.data["candidate_support"][1]["votes_count"], 0)
+
+    def test_analytics_api_rejects_non_closed_election(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Analytics Open Election",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=1),
+            end_at=now + timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        response = self.client.get(
+            reverse("api_election_analytics", kwargs={"election_id": election.id}),
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 400)
