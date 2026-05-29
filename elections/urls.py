@@ -6,6 +6,7 @@ from .api_views import (
     ElectionCreateApiView,
     ElectionAnalyticsApiView,
     ElectionDetailApiView,
+    HistoricalTrendsApiView,
     ElectionPublishApiView,
     ElectionResultPdfGenerateApiView,
     ElectionResultsApiView,
@@ -74,6 +75,11 @@ urlpatterns = [
         "api/elections/analytics/top-turnout/",
         TopTurnoutElectionsApiView.as_view(),
         name="api_top_turnout_elections",
+    ),
+    path(
+        "api/elections/analytics/historical-trends/",
+        HistoricalTrendsApiView.as_view(),
+        name="api_historical_trends",
     ),
     path(
         "api/elections/<int:election_id>/results/pdf/",

@@ -1060,6 +1060,157 @@ class ElectionApiEndpointsTests(APITestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_historical_trends_api_returns_ordered_points_with_summary(self):
+        now = timezone.now()
+        election_old = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Trend Old",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=3),
+            end_at=now + timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        election_mid = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Trend Mid",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=3),
+            end_at=now + timedelta(hours=2),
+            created_by_user=self.user,
+        )
+        election_new = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Trend New",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=3),
+            end_at=now + timedelta(hours=3),
+            created_by_user=self.user,
+        )
+        election_hidden = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Trend Hidden",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=3),
+            end_at=now + timedelta(hours=4),
+            created_by_user=self.user,
+        )
+        election_hidden.schedule.results_publish_at = now + timedelta(days=1)
+        election_hidden.schedule.save(update_fields=["results_publish_at"])
+
+        old_candidate = ElectionCandidate.objects.create(
+            election=election_old,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        mid_candidate = ElectionCandidate.objects.create(
+            election=election_mid,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+        hidden_candidate = ElectionCandidate.objects.create(
+            election=election_hidden,
+            person=self.person1,
+            candidate_number=1,
+            is_approved=True,
+        )
+
+        VotingEligibility.objects.create(
+            election=election_old,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=election_mid,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=election_mid,
+            person=self.person2,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=election_new,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingEligibility.objects.create(
+            election=election_hidden,
+            person=self.person1,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+
+        VotingService.issue_token(
+            election=election_old,
+            person=self.person1,
+            raw_token="trend-old-token",
+        )
+        VotingService.cast_vote(
+            election=election_old,
+            person=self.person1,
+            raw_token="trend-old-token",
+            candidate_ids=[old_candidate.id],
+            anonymous_key="trend-old-anon",
+        )
+        VotingService.issue_token(
+            election=election_mid,
+            person=self.person1,
+            raw_token="trend-mid-token",
+        )
+        VotingService.cast_vote(
+            election=election_mid,
+            person=self.person1,
+            raw_token="trend-mid-token",
+            candidate_ids=[mid_candidate.id],
+            anonymous_key="trend-mid-anon",
+        )
+        VotingService.issue_token(
+            election=election_hidden,
+            person=self.person1,
+            raw_token="trend-hidden-token",
+        )
+        VotingService.cast_vote(
+            election=election_hidden,
+            person=self.person1,
+            raw_token="trend-hidden-token",
+            candidate_ids=[hidden_candidate.id],
+            anonymous_key="trend-hidden-anon",
+        )
+
+        ElectionLifecycleService.close_election(election_old, force=True)
+        ElectionLifecycleService.close_election(election_mid, force=True)
+        ElectionLifecycleService.close_election(election_new, force=True)
+        ElectionLifecycleService.close_election(election_hidden, force=True)
+
+        response = self.client.get(
+            reverse("api_historical_trends"),
+            {"window": 2},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["window"], 2)
+        self.assertEqual(response.data["summary"]["points_count"], 2)
+        self.assertEqual(len(response.data["points"]), 2)
+        self.assertEqual(response.data["points"][0]["election_id"], election_mid.id)
+        self.assertEqual(response.data["points"][1]["election_id"], election_new.id)
+        self.assertEqual(response.data["summary"]["max_turnout_percent"], "50.00")
+        self.assertEqual(response.data["summary"]["min_turnout_percent"], "0.00")
+        self.assertEqual(response.data["summary"]["average_turnout_percent"], "25.00")
+        returned_ids = [point["election_id"] for point in response.data["points"]]
+        self.assertNotIn(election_hidden.id, returned_ids)
+
+    def test_historical_trends_api_rejects_invalid_window(self):
+        response = self.client.get(
+            reverse("api_historical_trends"),
+            {"window": 0},
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_results_api_respects_results_publish_at(self):
         now = timezone.now()
         election = ElectionLifecycleService.create_election_with_config(

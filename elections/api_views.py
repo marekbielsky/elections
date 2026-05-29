@@ -188,6 +188,78 @@ class ElectionResultsApiView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+class HistoricalTrendsApiView(APIView):
+    permission_classes = [RBACPermission]
+    required_permission_code = PermissionCodes.RESULT_READ
+
+    def get(self, request):
+        window = request.query_params.get("window", "12")
+        try:
+            window_int = int(window)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "window must be an integer between 1 and 120."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if window_int < 1 or window_int > 120:
+            return Response(
+                {"detail": "window must be an integer between 1 and 120."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        now = timezone.now()
+        closed_published_elections = Election.objects.select_related("schedule").filter(
+            election_status__code="CLOSED"
+        ).filter(
+            Q(schedule__results_publish_at__isnull=True) | Q(schedule__results_publish_at__lte=now)
+        )
+        for election in closed_published_elections.filter(result__isnull=True):
+            ElectionResultService.generate_results(election=election, is_final=True)
+
+        trend_results_desc = list(
+            ElectionResult.objects.select_related(
+                "election",
+                "election__election_type",
+                "election__schedule",
+            )
+            .filter(election__election_status__code="CLOSED")
+            .filter(
+                Q(election__schedule__results_publish_at__isnull=True)
+                | Q(election__schedule__results_publish_at__lte=now)
+            )
+            .order_by("-election__schedule__end_at", "-election_id")[:window_int]
+        )
+        trend_results = list(reversed(trend_results_desc))
+
+        turnout_values = [float(result.turnout_percent) for result in trend_results]
+        average_turnout = sum(turnout_values) / len(turnout_values) if turnout_values else 0.0
+        max_turnout = max(turnout_values) if turnout_values else 0.0
+        min_turnout = min(turnout_values) if turnout_values else 0.0
+
+        payload = {
+            "window": window_int,
+            "points": [
+                {
+                    "election_id": result.election_id,
+                    "election_name": result.election.name,
+                    "election_type": result.election.election_type.code,
+                    "ended_at": result.election.schedule.end_at,
+                    "turnout_percent": str(result.turnout_percent),
+                    "eligible_voters_count": result.eligible_voters_count,
+                    "voters_count": result.voters_count,
+                }
+                for result in trend_results
+            ],
+            "summary": {
+                "points_count": len(trend_results),
+                "average_turnout_percent": f"{average_turnout:.2f}",
+                "max_turnout_percent": f"{max_turnout:.2f}",
+                "min_turnout_percent": f"{min_turnout:.2f}",
+            },
+        }
+        return Response(payload, status=status.HTTP_200_OK)
+
+
 class ElectionPublishApiView(APIView):
     permission_classes = [RBACPermission]
     required_permission_code = PermissionCodes.ELECTION_MANAGE_STATE
