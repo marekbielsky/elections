@@ -1,3 +1,4 @@
 Django==6.0.3
+djangorestframework==3.17.1
 gunicorn==23.0.0
 whitenoise==6.9.0
