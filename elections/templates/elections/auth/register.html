@@ -1,0 +1,16 @@
+{% extends 'elections/base.html' %}
+
+{% block title %}Rejestracja{% endblock %}
+
+{% block content %}
+    <h1>Rejestracja użytkownika</h1>
+    <p>Załóż konto, aby korzystać z systemu ról i uprawnień.</p>
+
+    <form method="post" class="app-form">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">Zarejestruj</button>
+    </form>
+
+    <p>Masz już konto? <a href="{% url 'login' %}">Zaloguj się</a>.</p>
+{% endblock %}

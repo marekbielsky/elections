@@ -21,6 +21,16 @@
         <li><a href="{% url 'results_list' %}">Wyniki głosowania</a></li>
     </ul>
 
+    <h3>Konto użytkownika:</h3>
+    {% if request.user.is_authenticated %}
+        <p>Zalogowany jako <strong>{{ request.user.username }}</strong>.</p>
+    {% else %}
+        <ul>
+            <li><a href="{% url 'login' %}">Zaloguj</a></li>
+            <li><a href="{% url 'register' %}">Zarejestruj</a></li>
+        </ul>
+    {% endif %}
+
     <h3>Sekcja administracyjna:</h3>
     <p>Przejdź do panelu administracyjnego i narzędzi zarządzania wyborami.</p>
     <ul>

@@ -306,6 +306,54 @@ class AdminRoleMvpRoutesTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Panel administracyjny")
 
+class AuthenticationFlowTests(TestCase):
+    def test_register_creates_user_with_default_role_and_logs_in(self):
+        response = self.client.post(
+            reverse("register"),
+            {
+                "username": "new_auth_user",
+                "email": "new_auth_user@example.com",
+                "password1": "StrongPass123!",
+                "password2": "StrongPass123!",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        user_model = get_user_model()
+        user = user_model.objects.get(username="new_auth_user")
+        self.assertTrue(UserRole.objects.filter(user=user, role=UserRole.Role.USER).exists())
+        self.assertEqual(int(self.client.session["_auth_user_id"]), user.id)
+
+    def test_login_creates_missing_default_role_profile(self):
+        user_model = get_user_model()
+        user = user_model.objects.create_user(
+            username="existing_no_role",
+            email="existing_no_role@example.com",
+            password="StrongPass123!",
+        )
+        self.assertFalse(UserRole.objects.filter(user=user).exists())
+
+        response = self.client.post(
+            reverse("login"),
+            {
+                "username": "existing_no_role",
+                "password": "StrongPass123!",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(UserRole.objects.filter(user=user, role=UserRole.Role.USER).exists())
+
+    def test_logout_post_clears_authenticated_session(self):
+        user_model = get_user_model()
+        user = user_model.objects.create_user(
+            username="logout_user",
+            email="logout_user@example.com",
+            password="StrongPass123!",
+        )
+        self.client.force_login(user)
+        response = self.client.post(reverse("logout"))
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
 
 class AdminWorkflowTests(TestCase):
     @classmethod
