@@ -1,0 +1,16 @@
+{% extends 'elections/base.html' %}
+
+{% block title %}Logowanie{% endblock %}
+
+{% block content %}
+    <h1>Logowanie</h1>
+    <p>Zaloguj się, aby korzystać z funkcji zależnych od roli użytkownika.</p>
+
+    <form method="post" class="app-form">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">Zaloguj</button>
+    </form>
+
+    <p>Nie masz konta? <a href="{% url 'register' %}">Zarejestruj się</a>.</p>
+{% endblock %}

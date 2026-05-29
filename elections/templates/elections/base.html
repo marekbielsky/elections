@@ -35,6 +35,16 @@
             <a href="{% url 'election_create' %}">Dodaj wybory</a>
             <a href="{% url 'results_list' %}">Wyniki głosowania</a>
             <a href="{% url 'admin_overview' %}">Panel administracyjny</a>
+            {% if request.user.is_authenticated %}
+                <span class="nav-user">Zalogowany: {{ request.user.username }}</span>
+                <form method="post" action="{% url 'logout' %}" class="nav-logout-form">
+                    {% csrf_token %}
+                    <button type="submit">Wyloguj</button>
+                </form>
+            {% else %}
+                <a href="{% url 'login' %}">Zaloguj</a>
+                <a href="{% url 'register' %}">Zarejestruj</a>
+            {% endif %}
         </div>
     </nav>
 

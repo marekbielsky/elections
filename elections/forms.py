@@ -1,4 +1,6 @@
 from django import forms
+from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 
 from .models import (
     ElectionCandidate,
@@ -10,6 +12,18 @@ from .models import (
     UserRole,
 )
 from .services import ElectionLifecycleService
+
+class UserRegistrationForm(UserCreationForm):
+    email = forms.EmailField(required=True, label="E-mail")
+
+    class Meta:
+        model = get_user_model()
+        fields = ("username", "email", "password1", "password2")
+
+
+class UserLoginForm(AuthenticationForm):
+    username = forms.CharField(label="Nazwa użytkownika")
+    password = forms.CharField(label="Hasło", widget=forms.PasswordInput)
 
 
 class ElectionCreateForm(forms.Form):

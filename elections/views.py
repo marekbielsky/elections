@@ -1,4 +1,4 @@
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, login as auth_login, logout as auth_logout
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -8,6 +8,8 @@ from .forms import (
     ElectionCreateForm,
     ElectionLifecycleActionForm,
     RolePermissionAssignmentForm,
+    UserLoginForm,
+    UserRegistrationForm,
     UserRoleAssignmentForm,
 )
 from .models import (
@@ -27,6 +29,39 @@ from .services import ElectionLifecycleError, ElectionLifecycleService
 
 def healthz_view(request):
     return HttpResponse("ok")
+
+
+def register_view(request):
+    if request.user.is_authenticated:
+        return redirect("home")
+    if request.method == "POST":
+        form = UserRegistrationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            UserRole.objects.get_or_create(user=user, defaults={"role": UserRole.Role.USER})
+            auth_login(request, user)
+            return redirect("home")
+    else:
+        form = UserRegistrationForm()
+    return render(request, "elections/auth/register.html", {"form": form})
+
+
+def login_view(request):
+    if request.user.is_authenticated:
+        return redirect("home")
+    form = UserLoginForm(request=request, data=request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        user = form.get_user()
+        auth_login(request, user)
+        UserRole.objects.get_or_create(user=user, defaults={"role": UserRole.Role.USER})
+        return redirect("home")
+    return render(request, "elections/auth/login.html", {"form": form})
+
+
+def logout_view(request):
+    if request.method == "POST":
+        auth_logout(request)
+    return redirect("home")
 
 
 def home_view(request):

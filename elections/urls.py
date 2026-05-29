@@ -20,6 +20,9 @@ from .api_views import (
 
 urlpatterns = [
     path("", views.home_view, name="home"),
+    path("register/", views.register_view, name="register"),
+    path("login/", views.login_view, name="login"),
+    path("logout/", views.logout_view, name="logout"),
     path("candidates/", views.candidates_list_view, name="candidates_list"),
     path("candidates/create/", views.candidate_create_view, name="candidate_create"),
     path("committees/", views.committees_list_view, name="committees_list"),
