@@ -897,6 +897,40 @@ class AdminWorkflowTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_admin_can_execute_database_procedure_actions(self):
+        self.client.force_login(self.admin_user)
+        refresh_response = self.client.post(
+            reverse("admin_database_procedure_action"),
+            {"action": "refresh_overdue_turnout"},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(refresh_response.status_code, 200)
+        self.assertEqual(refresh_response.json()["status"], "ok")
+        self.assertEqual(refresh_response.json()["action"], "refresh_overdue_turnout")
+        self.assertIn("result", refresh_response.json())
+
+        recompute_response = self.client.post(
+            reverse("admin_database_procedure_action"),
+            {"action": "recompute_results_winners"},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(recompute_response.status_code, 200)
+        self.assertEqual(recompute_response.json()["status"], "ok")
+        self.assertEqual(recompute_response.json()["action"], "recompute_results_winners")
+        self.assertIn("result", recompute_response.json())
+
+    def test_user_cannot_execute_database_procedure_actions(self):
+        self.client.force_login(self.normal_user)
+        response = self.client.post(
+            reverse("admin_database_procedure_action"),
+            {"action": "refresh_overdue_turnout"},
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_admin_can_toggle_candidate_approval_from_candidates_list(self):
         person = Person.objects.create(
             user=self.normal_user,

@@ -53,4 +53,15 @@
             </tr>
         </tbody>
     </table>
+
+    <h3>Procedury aplikacyjne (ORM + SQL VIEW):</h3>
+    <p>Uruchom operacje biznesowe działające transakcyjnie i korzystające z widoków SQL.</p>
+    <form method="post" action="{% url 'admin_database_procedure_action' %}" class="app-form">
+        {% csrf_token %}
+        <p>
+            <label for="id_action">{{ database_procedure_form.action.label }}</label>
+            {{ database_procedure_form.action }}
+        </p>
+        <button type="submit">Uruchom procedurę</button>
+    </form>
 {% endblock %}

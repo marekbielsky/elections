@@ -208,6 +208,14 @@ class ElectionLifecycleActionForm(forms.Form):
         label="Akcja",
     )
 
+class DatabaseProcedureActionForm(forms.Form):
+    action = forms.ChoiceField(
+        choices=(
+            ("refresh_overdue_turnout", "Odśwież zaległe wybory + odczytaj frekwencję"),
+            ("recompute_results_winners", "Przelicz wyniki zamkniętych wyborów + odczytaj zwycięzców"),
+        ),
+        label="Procedura aplikacyjna",
+    )
 
 class CastVoteForm(forms.Form):
     election = forms.ModelChoiceField(

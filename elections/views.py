@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from .forms import (
     CastVoteForm,
+    DatabaseProcedureActionForm,
     ElectionCandidateCreateForm,
     ElectionCreateForm,
     ElectionLifecycleActionForm,
@@ -34,7 +35,13 @@ from .models import (
     VotingToken,
 )
 from .rbac import PermissionCodes, require_permission, wants_json_response
-from .services import ElectionLifecycleError, ElectionLifecycleService, VotingError, VotingService
+from .services import (
+    DatabaseProcedureService,
+    ElectionLifecycleError,
+    ElectionLifecycleService,
+    VotingError,
+    VotingService,
+)
 
 
 def healthz_view(request):
@@ -448,10 +455,56 @@ def admin_overview_view(request):
         "active_committees_count": OrganizationalUnit.objects.filter(is_active=True).count(),
         "candidates_count": ElectionCandidate.objects.count(),
     }
-    context = {"summary": summary}
+    context = {
+        "summary": summary,
+        "database_procedure_form": DatabaseProcedureActionForm(),
+    }
     if wants_json_response(request):
         return JsonResponse({"summary": context["summary"]})
     return render(request, "elections/admin/overview.html", context)
+@login_required
+@require_permission(PermissionCodes.ADMIN_PANEL_VIEW)
+def admin_database_procedure_action_view(request):
+    if request.method != "POST":
+        return redirect("admin_overview")
+    form = DatabaseProcedureActionForm(request.POST)
+    if not form.is_valid():
+        if wants_json_response(request):
+            return JsonResponse({"errors": form.errors}, status=400)
+        messages.error(request, "Nie udało się uruchomić procedury: nieprawidłowe dane formularza.")
+        return redirect("admin_overview")
+    action = form.cleaned_data["action"]
+    if action == "refresh_overdue_turnout":
+        result = DatabaseProcedureService.refresh_overdue_elections_and_fetch_turnout(
+            generated_by_user=request.user if request.user.is_authenticated else None
+        )
+        success_message = (
+            f"Procedura wykonana: zamknięto {result['closed_elections_count']} zaległych wyborów, "
+            f"odczytano {len(result['turnout_by_type'])} wierszy frekwencji."
+        )
+    elif action == "recompute_results_winners":
+        result = DatabaseProcedureService.recompute_closed_results_and_fetch_winners(
+            generated_by_user=request.user if request.user.is_authenticated else None
+        )
+        success_message = (
+            f"Procedura wykonana: przeliczono {result['recomputed_results_count']} zamkniętych wyników, "
+            f"odczytano {len(result['winners'])} rekordów zwycięzców."
+        )
+    else:
+        if wants_json_response(request):
+            return JsonResponse({"detail": "Unsupported action."}, status=400)
+        messages.error(request, "Nieobsługiwana procedura aplikacyjna.")
+        return redirect("admin_overview")
+    if wants_json_response(request):
+        return JsonResponse(
+            {
+                "status": "ok",
+                "action": action,
+                "result": result,
+            }
+        )
+    messages.success(request, success_message)
+    return redirect("admin_overview")
 
 
 @login_required

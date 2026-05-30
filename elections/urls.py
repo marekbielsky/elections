@@ -71,6 +71,11 @@ urlpatterns = [
         views.admin_election_lifecycle_action_view,
         name="admin_election_lifecycle_action",
     ),
+    path(
+        "management/admin/database-procedures/action/",
+        views.admin_database_procedure_action_view,
+        name="admin_database_procedure_action",
+    ),
     path("api/elections/", ElectionCreateApiView.as_view(), name="api_election_create"),
     path(
         "api/elections/calendar/events/",

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Iterable
 from django.core.files.base import ContentFile
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -457,6 +457,72 @@ class ElectionResultService:
             Decimal("0.01"),
             rounding=ROUND_HALF_UP,
         )
+
+class DatabaseProcedureService:
+    @staticmethod
+    def refresh_overdue_elections_and_fetch_turnout(*, generated_by_user=None, at_time=None) -> dict:
+        with transaction.atomic():
+            closed_elections_count = ElectionLifecycleService.close_overdue_elections(
+                at_time=at_time,
+                generated_by_user=generated_by_user,
+            )
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT election_type_code, election_type_name, elections_count, avg_turnout_percent
+                    FROM elections_view_turnout_by_type
+                    ORDER BY election_type_code
+                    """
+                )
+                turnout_by_type = [
+                    {
+                        "election_type_code": row[0],
+                        "election_type_name": row[1],
+                        "elections_count": row[2],
+                        "avg_turnout_percent": row[3],
+                    }
+                    for row in cursor.fetchall()
+                ]
+        return {
+            "closed_elections_count": closed_elections_count,
+            "turnout_by_type": turnout_by_type,
+        }
+
+    @staticmethod
+    def recompute_closed_results_and_fetch_winners(*, generated_by_user=None) -> dict:
+        with transaction.atomic():
+            closed_elections = Election.objects.select_related("election_status").filter(
+                election_status__code="CLOSED"
+            )
+            recomputed_results_count = 0
+            for election in closed_elections:
+                ElectionResultService.generate_results(
+                    election=election,
+                    generated_by_user=generated_by_user,
+                    is_final=True,
+                )
+                recomputed_results_count += 1
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT election_id, election_name, winner_name, winner_votes
+                    FROM elections_view_election_winners
+                    ORDER BY election_id
+                    """
+                )
+                winners = [
+                    {
+                        "election_id": row[0],
+                        "election_name": row[1],
+                        "winner_name": row[2],
+                        "winner_votes": row[3],
+                    }
+                    for row in cursor.fetchall()
+                ]
+        return {
+            "recomputed_results_count": recomputed_results_count,
+            "winners": winners,
+        }
 
 
 class ElectionResultDocumentService:
