@@ -316,7 +316,7 @@ def vote_cast_view(request):
                         person=person,
                         raw_token=raw_token,
                         candidate_ids=candidate_ids,
-                        anonymous_key=form.cleaned_data.get("anonymous_key") or None,
+                        anonymous_key=None,
                     )
                     success_message = (
                         f"Głos został zapisany poprawnie (ID karty: {result.ballot_id})."

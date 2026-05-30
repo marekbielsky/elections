@@ -196,6 +196,10 @@ class Command(BaseCommand):
             ("Komitet Samorządność i Przyszłość", "KOMITET"),
             ("Komitet Wspólna Odpowiedzialność", "KOMITET"),
             ("Komitet Nowa Energia", "KOMITET"),
+            ("Komitet Akademicki Wydział Informatyki", "KOMITET"),
+            ("Komitet Akademicki Wydział Zarządzania", "KOMITET"),
+            ("Komitet Pracowniczy Operacje", "KOMITET"),
+            ("Komitet Pracowniczy Rozwój", "KOMITET"),
         ]
         seeded_committees = []
         for committee_name, committee_type in committee_units:

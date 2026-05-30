@@ -48,7 +48,7 @@ def _calendar_events_from_elections(elections) -> list[dict]:
                 "event_at": schedule.start_at,
                 "election_id": election.id,
                 "election_name": election.name,
-                "election_type": election.election_type.code,
+                "election_type": election.election_type.name,
                 "election_status": election.election_status.code,
                 "organizational_unit_id": election.organizational_unit_id,
             }
@@ -59,7 +59,7 @@ def _calendar_events_from_elections(elections) -> list[dict]:
                 "event_at": schedule.end_at,
                 "election_id": election.id,
                 "election_name": election.name,
-                "election_type": election.election_type.code,
+                "election_type": election.election_type.name,
                 "election_status": election.election_status.code,
                 "organizational_unit_id": election.organizational_unit_id,
             }
@@ -71,7 +71,7 @@ def _calendar_events_from_elections(elections) -> list[dict]:
                     "event_at": schedule.results_publish_at,
                     "election_id": election.id,
                     "election_name": election.name,
-                    "election_type": election.election_type.code,
+                    "election_type": election.election_type.name,
                     "election_status": election.election_status.code,
                     "organizational_unit_id": election.organizational_unit_id,
                 }
@@ -144,7 +144,7 @@ def _serialize_election(election: Election) -> dict:
         "description": election.description,
         "is_secret": election.is_secret,
         "status": election.election_status.code,
-        "type": election.election_type.code,
+        "type": election.election_type.name,
         "organizational_unit_id": election.organizational_unit_id,
         "start_at": election.schedule.start_at,
         "end_at": election.schedule.end_at,
@@ -183,6 +183,8 @@ class ElectionCreateApiView(APIView):
                     {"detail": "One or more eligible_person_ids are invalid."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+        else:
+            eligible_people = list(Person.objects.all())
 
         try:
             election = ElectionLifecycleService.create_election_with_config(
@@ -402,7 +404,7 @@ class HistoricalTrendsApiView(APIView):
                 {
                     "election_id": result.election_id,
                     "election_name": result.election.name,
-                    "election_type": result.election.election_type.code,
+                    "election_type": result.election.election_type.name,
                     "ended_at": result.election.schedule.end_at,
                     "turnout_percent": str(result.turnout_percent),
                     "eligible_voters_count": result.eligible_voters_count,
@@ -784,7 +786,7 @@ class TopTurnoutElectionsApiView(APIView):
                     "rank": index,
                     "election_id": result.election_id,
                     "election_name": result.election.name,
-                    "election_type": result.election.election_type.code,
+                    "election_type": result.election.election_type.name,
                     "eligible_voters_count": result.eligible_voters_count,
                     "voters_count": result.voters_count,
                     "turnout_percent": str(result.turnout_percent),

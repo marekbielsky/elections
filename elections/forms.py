@@ -2,6 +2,7 @@ from django import forms
 from captcha.fields import CaptchaField, CaptchaTextInput
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
+from django.db.models import Q
 from django.utils import timezone
 
 from .models import (
@@ -19,6 +20,12 @@ from .models import (
 from .services import ElectionLifecycleService
 class NativeSizeCaptchaTextInput(CaptchaTextInput):
     template_name = "elections/widgets/captcha_native.html"
+
+class EligiblePeopleChoiceField(forms.ModelMultipleChoiceField):
+    def label_from_instance(self, obj):
+        username = getattr(getattr(obj, "user", None), "username", "brak")
+        identifier = obj.student_or_employee_no or "brak"
+        return f"{obj.first_name} {obj.last_name} (login: {username}, ID: {identifier})"
 
 
 class UserRegistrationForm(UserCreationForm):
@@ -90,11 +97,11 @@ class ElectionCreateForm(forms.Form):
     max_choices = forms.IntegerField(min_value=1, initial=1, label="Maksymalna liczba wyborów")
     allow_blank_vote = forms.BooleanField(required=False, label="Dopuść pusty głos")
     allow_vote_change = forms.BooleanField(required=False, label="Dopuść zmianę głosu")
-    eligible_people = forms.ModelMultipleChoiceField(
+    eligible_people = EligiblePeopleChoiceField(
         queryset=Person.objects.select_related("user").order_by("last_name", "first_name"),
         required=False,
         label="Osoby uprawnione do głosowania",
-        help_text="Opcjonalnie wybierz osoby, które mogą oddać głos w tych wyborach.",
+        help_text="Opcjonalnie wybierz osoby, które mogą oddać głos w tych wyborach. Jeśli pozostawisz puste, uprawnieni będą wszyscy użytkownicy.",
     )
 
     def clean(self):
@@ -111,7 +118,7 @@ class ElectionCreateForm(forms.Form):
 
     def save(self, *, created_by_user=None):
         data = self.cleaned_data
-        eligible_people = list(data.get("eligible_people") or [])
+        eligible_people = list(data.get("eligible_people") or Person.objects.all())
         election = ElectionLifecycleService.create_election_with_config(
             election_type=data["election_type"],
             name=data["name"],
@@ -216,12 +223,6 @@ class CastVoteForm(forms.Form):
         label="Kandydaci",
         widget=forms.CheckboxSelectMultiple,
     )
-    anonymous_key = forms.CharField(
-        max_length=120,
-        required=False,
-        label="Klucz anonimowy (opcjonalnie)",
-        help_text="Jeśli puste, system wygeneruje go automatycznie.",
-    )
 
     def __init__(self, *args, **kwargs):
         person = kwargs.pop("person", None)
@@ -234,8 +235,13 @@ class CastVoteForm(forms.Form):
                     election_status__code="IN_PROGRESS",
                     schedule__start_at__lte=now,
                     schedule__end_at__gte=now,
-                    eligibilities__person=person,
-                    eligibilities__eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+                )
+                .filter(
+                    Q(
+                        eligibilities__person=person,
+                        eligibilities__eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+                    )
+                    | Q(eligibilities__isnull=True)
                 )
                 .distinct()
                 .order_by("name")

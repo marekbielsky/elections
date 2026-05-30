@@ -77,7 +77,7 @@ class ElectionLifecycleService:
         ).exists()
         if has_collision:
             raise ElectionLifecycleError(
-                "Schedule collision detected for the selected organizational unit."
+                "Wykryto kolizję harmonogramu dla wybranej jednostki organizacyjnej."
             )
     @staticmethod
     def create_election_with_config(
@@ -138,9 +138,9 @@ class ElectionLifecycleService:
         now = at_time or timezone.now()
         schedule = election.schedule
         if now < schedule.start_at:
-            raise ElectionLifecycleError("Election cannot be started before configured start time.")
+            raise ElectionLifecycleError("Nie można rozpocząć wyborów przed skonfigurowanym czasem startu.")
         if now >= schedule.end_at:
-            raise ElectionLifecycleError("Election cannot be started after configured end time.")
+            raise ElectionLifecycleError("Nie można rozpocząć wyborów po skonfigurowanym czasie zakończenia.")
         election.election_status = ElectionLifecycleService._status_by_code("IN_PROGRESS")
         election.save(update_fields=["election_status", "updated_at"])
         return election
@@ -156,7 +156,7 @@ class ElectionLifecycleService:
         ElectionLifecycleService._ensure_status(election, allowed={"IN_PROGRESS", "PUBLISHED"})
         now = at_time or timezone.now()
         if not force and now < election.schedule.end_at:
-            raise ElectionLifecycleError("Election cannot be closed before configured end time.")
+            raise ElectionLifecycleError("Nie można zamknąć wyborów przed skonfigurowanym czasem zakończenia.")
         election.election_status = ElectionLifecycleService._status_by_code("CLOSED")
         election.save(update_fields=["election_status", "updated_at"])
         ElectionResultService.generate_results(
@@ -171,14 +171,14 @@ class ElectionLifecycleService:
         try:
             return ElectionStatus.objects.get(code=code)
         except ElectionStatus.DoesNotExist as exc:
-            raise ElectionLifecycleError(f"Required election status '{code}' is not configured.") from exc
+            raise ElectionLifecycleError(f"Wymagany status wyborów '{code}' nie jest skonfigurowany.") from exc
 
     @staticmethod
     def _ensure_status(election: Election, *, allowed: set[str]) -> None:
         current_status = election.election_status.code
         if current_status not in allowed:
             raise ElectionLifecycleError(
-                f"Invalid election status transition from '{current_status}'. Allowed: {sorted(allowed)}."
+                f"Nieprawidłowa zmiana statusu wyborów z '{current_status}'. Dozwolone: {sorted(allowed)}."
             )
 
 
@@ -191,13 +191,7 @@ class VotingService:
         raw_token: str | None = None,
         expires_at=None,
     ) -> VotingToken:
-        eligibility = VotingEligibility.objects.filter(
-            election=election,
-            person=person,
-            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
-        ).exists()
-        if not eligibility:
-            raise VotingError("Person is not eligible to vote in this election.")
+        VotingService._ensure_eligibility(election=election, person=person)
 
         token_value = raw_token or secrets.token_urlsafe(24)
         token, _ = VotingToken.objects.update_or_create(
@@ -272,7 +266,7 @@ class VotingService:
                 ballot.submitted_at = None
                 ballot.save(update_fields=["ballot_status", "submitted_at"])
             else:
-                raise VotingError("Vote has already been cast and vote change is disabled.")
+                raise VotingError("Głos został już oddany i zmiana głosu jest wyłączona.")
 
             BallotSelection.objects.bulk_create(
                 [
@@ -319,29 +313,32 @@ class VotingService:
     @staticmethod
     def _ensure_election_open_for_voting(*, election: Election, at_time) -> None:
         if election.election_status.code != "IN_PROGRESS":
-            raise VotingError("Election is not in progress.")
+            raise VotingError("Wybory nie są obecnie w trakcie.")
         if at_time < election.schedule.start_at or at_time >= election.schedule.end_at:
-            raise VotingError("Election is outside allowed voting time window.")
+            raise VotingError("Wybory są poza dozwolonym oknem czasowym głosowania.")
 
     @staticmethod
     def _ensure_eligibility(*, election: Election, person) -> None:
+        has_any_eligibilities = VotingEligibility.objects.filter(election=election).exists()
+        if not has_any_eligibilities:
+            return
         is_eligible = VotingEligibility.objects.filter(
             election=election,
             person=person,
             eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
         ).exists()
         if not is_eligible:
-            raise VotingError("Person is not eligible to vote in this election.")
+            raise VotingError("Ta osoba nie ma uprawnień do głosowania w tych wyborach.")
 
     @staticmethod
     def _validate_choice_count(*, selected_ids: list[int], voting_rule: VotingRule) -> None:
         selected_count = len(selected_ids)
         if selected_count == 0 and not voting_rule.allow_blank_vote:
-            raise VotingError("Blank vote is not allowed for this election.")
+            raise VotingError("Pusty głos nie jest dozwolony w tych wyborach.")
         if selected_count < voting_rule.min_choices:
-            raise VotingError(f"At least {voting_rule.min_choices} candidate(s) must be selected.")
+            raise VotingError(f"Należy wybrać co najmniej {voting_rule.min_choices} kandydat(a/ów).")
         if selected_count > voting_rule.max_choices:
-            raise VotingError(f"At most {voting_rule.max_choices} candidate(s) can be selected.")
+            raise VotingError(f"Można wybrać maksymalnie {voting_rule.max_choices} kandydat(a/ów).")
 
     @staticmethod
     def _validate_candidates(*, election: Election, selected_ids: list[int]) -> list[int]:
@@ -351,7 +348,7 @@ class VotingService:
             election.candidates.filter(id__in=selected_ids, is_approved=True).values_list("id", flat=True)
         )
         if len(valid_ids) != len(selected_ids):
-            raise VotingError("One or more selected candidates are invalid for this election.")
+            raise VotingError("Co najmniej jeden z wybranych kandydatów jest nieprawidłowy dla tych wyborów.")
         return selected_ids
 
 
@@ -359,7 +356,7 @@ class ElectionResultService:
     @staticmethod
     def generate_results(*, election: Election, generated_by_user=None, is_final: bool = True) -> ElectionResult:
         if election.election_status.code != "CLOSED":
-            raise ElectionLifecycleError("Results can be generated only for closed elections.")
+            raise ElectionLifecycleError("Wyniki można wygenerować tylko dla zamkniętych wyborów.")
 
         with transaction.atomic():
             election = (
@@ -368,7 +365,7 @@ class ElectionResultService:
                 .get(id=election.id)
             )
             if election.election_status.code != "CLOSED":
-                raise ElectionLifecycleError("Results can be generated only for closed elections.")
+                raise ElectionLifecycleError("Wyniki można wygenerować tylko dla zamkniętych wyborów.")
 
             eligible_voters_count = (
                 VotingEligibility.objects.filter(
@@ -450,7 +447,7 @@ class ElectionResultDocumentService:
     @staticmethod
     def generate_result_pdf(*, election: Election, generated_by_user=None) -> GeneratedDocument:
         if election.election_status.code != "CLOSED":
-            raise ElectionLifecycleError("Result PDF can be generated only for closed elections.")
+            raise ElectionLifecycleError("PDF z wynikami można wygenerować tylko dla zamkniętych wyborów.")
 
         result = ElectionResult.objects.filter(election=election).prefetch_related("items").first()
         if result is None:
