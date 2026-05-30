@@ -1,15 +1,10 @@
 import os
-from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.utils import timezone
 
 from elections.models import (
-    Election,
-    ElectionCandidate,
-    ElectionSchedule,
     ElectionStatus,
     ElectionType,
     OrganizationalUnit,
@@ -18,8 +13,6 @@ from elections.models import (
     Role,
     RolePermission,
     UserRole,
-    VotingEligibility,
-    VotingRule,
 )
 
 
@@ -36,7 +29,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--with-demo",
             action="store_true",
-            help="W połączeniu z --env local tworzy użytkowników demo i przykładowe głosowania.",
+            help="W połączeniu z --env local tworzy użytkowników demo, komitety i polityków (bez wyborów).",
         )
 
     @transaction.atomic
@@ -53,7 +46,12 @@ class Command(BaseCommand):
         elif target_env == "local":
             self.stdout.write(self.style.WARNING("Tryb local bez --with-demo: utworzono tylko dane referencyjne."))
         else:
-            self.stdout.write(self.style.SUCCESS("Zseedowano bezpieczne dane referencyjne dla produkcji."))
+            self._seed_local_demo_data()
+            self.stdout.write(
+                self.style.SUCCESS(
+                    "Zseedowano dane dla produkcji: słowniki referencyjne oraz podstawowe dane użytkowników/komitetów/polityków."
+                )
+            )
 
     def _seed_reference_data(self):
         role_definitions = [
@@ -180,11 +178,29 @@ class Command(BaseCommand):
         user_model = get_user_model()
         admin_password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin12345")
         demo_password = os.getenv("BOOTSTRAP_DEMO_PASSWORD", "demo12345")
+        sample_user_password = "Admin123!"
 
-        demo_unit, _ = OrganizationalUnit.objects.update_or_create(
+        country_unit, _ = OrganizationalUnit.objects.update_or_create(
             name="Rzeczpospolita Polska",
             defaults={"unit_type": "KRAJ", "is_active": True},
         )
+        committee_units = [
+            ("Komitet Obywatelski Rozwój", "KOMITET"),
+            ("Komitet Samorządność i Przyszłość", "KOMITET"),
+            ("Komitet Wspólna Odpowiedzialność", "KOMITET"),
+            ("Komitet Nowa Energia", "KOMITET"),
+        ]
+        seeded_committees = []
+        for committee_name, committee_type in committee_units:
+            committee, _ = OrganizationalUnit.objects.update_or_create(
+                name=committee_name,
+                defaults={
+                    "unit_type": committee_type,
+                    "is_active": True,
+                    "parent_unit": country_unit,
+                },
+            )
+            seeded_committees.append(committee)
 
         admin_user, admin_created = user_model.objects.get_or_create(
             username="admin_demo",
@@ -198,6 +214,19 @@ class Command(BaseCommand):
         if admin_created:
             admin_user.set_password(admin_password)
             admin_user.save(update_fields=["password"])
+        else:
+            admin_updates = []
+            if not admin_user.is_staff:
+                admin_user.is_staff = True
+                admin_updates.append("is_staff")
+            if not admin_user.is_superuser:
+                admin_user.is_superuser = True
+                admin_updates.append("is_superuser")
+            if not admin_user.is_active:
+                admin_user.is_active = True
+                admin_updates.append("is_active")
+            if admin_updates:
+                admin_user.save(update_fields=admin_updates)
         UserRole.objects.update_or_create(
             user=admin_user,
             defaults={"role": UserRole.Role.ADMIN},
@@ -214,14 +243,12 @@ class Command(BaseCommand):
             user=voter_user,
             defaults={"role": UserRole.Role.USER},
         )
-        voter_person, _ = Person.objects.update_or_create(
+        self._upsert_person_for_user(
             user=voter_user,
-            defaults={
-                "first_name": "Jan",
-                "last_name": "Wyborca",
-                "student_or_employee_no": "DEMO-VOTER-001",
-                "organizational_unit": demo_unit,
-            },
+            first_name="Jan",
+            last_name="Wyborca",
+            identifier="DEMO-VOTER-001",
+            organizational_unit=seeded_committees[0],
         )
         auditor_user, auditor_created = user_model.objects.get_or_create(
             username="auditor_demo",
@@ -234,55 +261,76 @@ class Command(BaseCommand):
             user=auditor_user,
             defaults={"role": UserRole.Role.AUDITOR},
         )
-        Person.objects.update_or_create(
+        self._upsert_person_for_user(
             user=auditor_user,
-            defaults={
-                "first_name": "Ada",
-                "last_name": "Audytor",
-                "student_or_employee_no": "DEMO-AUDITOR-001",
-                "organizational_unit": demo_unit,
-            },
+            first_name="Ada",
+            last_name="Audytor",
+            identifier="DEMO-AUDITOR-001",
+            organizational_unit=seeded_committees[1],
         )
 
-        now = timezone.now()
+        sample_users = [
+            ("anna_kowalska", "Anna", "Kowalska", "anna.kowalska@example.com", "DEMO-USER-001"),
+            ("piotr_nowak", "Piotr", "Nowak", "piotr.nowak@example.com", "DEMO-USER-002"),
+            ("katarzyna_wisniewska", "Katarzyna", "Wiśniewska", "katarzyna.wisniewska@example.com", "DEMO-USER-003"),
+            ("marek_wojcik", "Marek", "Wójcik", "marek.wojcik@example.com", "DEMO-USER-004"),
+            ("aleksandra_kaminska", "Aleksandra", "Kamińska", "aleksandra.kaminska@example.com", "DEMO-USER-005"),
+            ("lukasz_lewandowski", "Łukasz", "Lewandowski", "lukasz.lewandowski@example.com", "DEMO-USER-006"),
+            ("magdalena_zielinska", "Magdalena", "Zielińska", "magdalena.zielinska@example.com", "DEMO-USER-007"),
+            ("tomasz_szymanski", "Tomasz", "Szymański", "tomasz.szymanski@example.com", "DEMO-USER-008"),
+            ("joanna_dabrowska", "Joanna", "Dąbrowska", "joanna.dabrowska@example.com", "DEMO-USER-009"),
+            ("pawel_kozlowski", "Paweł", "Kozłowski", "pawel.kozlowski@example.com", "DEMO-USER-010"),
+            ("jan_kowalski_2", "Jan", "Kowalski", "jan.kowalski2@example.com", "DEMO-USER-011"),
+            ("adam_wisniewski", "Adam", "Wiśniewski", "adam.wisniewski@example.com", "DEMO-USER-012"),
+            ("ewa_nowicka", "Ewa", "Nowicka", "ewa.nowicka@example.com", "DEMO-USER-013"),
+            ("pawel_zawadzki", "Paweł", "Zawadzki", "pawel.zawadzki@example.com", "DEMO-USER-014"),
+            ("agnieszka_krupa", "Agnieszka", "Krupa", "agnieszka.krupa@example.com", "DEMO-USER-015"),
+            ("michal_kaczmarek", "Michał", "Kaczmarek", "michal.kaczmarek@example.com", "DEMO-USER-016"),
+            ("karolina_sikora", "Karolina", "Sikora", "karolina.sikora@example.com", "DEMO-USER-017"),
+            ("krzysztof_mazur", "Krzysztof", "Mazur", "krzysztof.mazur@example.com", "DEMO-USER-018"),
+            ("monika_baran", "Monika", "Baran", "monika.baran@example.com", "DEMO-USER-019"),
+            ("lukasz_jablonski", "Łukasz", "Jabłoński", "lukasz.jablonski@example.com", "DEMO-USER-020"),
+        ]
+        for index, (username, first_name, last_name, email, identifier) in enumerate(sample_users):
+            demo_user, _ = user_model.objects.get_or_create(
+                username=username,
+                defaults={"email": email, "is_active": True},
+            )
+            demo_updates = []
+            if demo_user.email != email:
+                demo_user.email = email
+                demo_updates.append("email")
+            if not demo_user.is_active:
+                demo_user.is_active = True
+                demo_updates.append("is_active")
+            demo_user.set_password(sample_user_password)
+            demo_updates.append("password")
+            demo_user.save(update_fields=demo_updates)
+            UserRole.objects.update_or_create(
+                user=demo_user,
+                defaults={"role": UserRole.Role.USER},
+            )
+            self._upsert_person_for_user(
+                user=demo_user,
+                first_name=first_name,
+                last_name=last_name,
+                identifier=identifier,
+                organizational_unit=seeded_committees[index % len(seeded_committees)],
+            )
+
         politicians = [
             ("donald_tusk", "Donald", "Tusk", "politician_donald_tusk@example.com", "PL-POL-001"),
-            (
-                "jaroslaw_kaczynski",
-                "Jarosław",
-                "Kaczyński",
-                "politician_jaroslaw_kaczynski@example.com",
-                "PL-POL-002",
-            ),
-            (
-                "rafal_trzaskowski",
-                "Rafał",
-                "Trzaskowski",
-                "politician_rafal_trzaskowski@example.com",
-                "PL-POL-003",
-            ),
+            ("jaroslaw_kaczynski", "Jarosław", "Kaczyński", "politician_jaroslaw_kaczynski@example.com", "PL-POL-002"),
+            ("rafal_trzaskowski", "Rafał", "Trzaskowski", "politician_rafal_trzaskowski@example.com", "PL-POL-003"),
             ("szymon_holownia", "Szymon", "Hołownia", "politician_szymon_holownia@example.com", "PL-POL-004"),
-            (
-                "wl_kosiniak_kamysz",
-                "Władysław",
-                "Kosiniak-Kamysz",
-                "politician_wladyslaw_kosiniak_kamysz@example.com",
-                "PL-POL-005",
-            ),
+            ("wl_kosiniak_kamysz", "Władysław", "Kosiniak-Kamysz", "politician_wladyslaw_kosiniak_kamysz@example.com", "PL-POL-005"),
             ("robert_biedron", "Robert", "Biedroń", "politician_robert_biedron@example.com", "PL-POL-006"),
             ("krzysztof_bosak", "Krzysztof", "Bosak", "politician_krzysztof_bosak@example.com", "PL-POL-007"),
             ("slawomir_mentzen", "Sławomir", "Mentzen", "politician_slawomir_mentzen@example.com", "PL-POL-008"),
-            (
-                "mateusz_morawiecki",
-                "Mateusz",
-                "Morawiecki",
-                "politician_mateusz_morawiecki@example.com",
-                "PL-POL-009",
-            ),
+            ("mateusz_morawiecki", "Mateusz", "Morawiecki", "politician_mateusz_morawiecki@example.com", "PL-POL-009"),
             ("adrian_zandberg", "Adrian", "Zandberg", "politician_adrian_zandberg@example.com", "PL-POL-010"),
         ]
-        candidate_people = []
-        for username, first_name, last_name, email, identifier in politicians:
+        for index, (username, first_name, last_name, email, identifier) in enumerate(politicians):
             politician_user, politician_created = user_model.objects.get_or_create(
                 username=username,
                 defaults={"email": email, "is_active": True},
@@ -290,94 +338,42 @@ class Command(BaseCommand):
             if politician_created:
                 politician_user.set_password(demo_password)
                 politician_user.save(update_fields=["password"])
-
-            person, _ = Person.objects.update_or_create(
+            UserRole.objects.update_or_create(
                 user=politician_user,
-                defaults={
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "student_or_employee_no": identifier,
-                    "organizational_unit": demo_unit,
-                },
+                defaults={"role": UserRole.Role.USER},
             )
-            candidate_people.append(person)
-
-        election_status = ElectionStatus.objects.get(code="PUBLISHED")
-        elections_to_seed = [
-            {
-                "type_code": "PRESIDENTIAL_RP",
-                "name": "Wybory Prezydenta RP 2025 (demo)",
-                "description": "Demonstracyjne głosowanie oparte na realnej nazwie wyborów prezydenckich w Polsce.",
-                "start_days_offset": 0,
-            },
-            {
-                "type_code": "PARLIAMENTARY_RP",
-                "name": "Wybory Parlamentarne RP 2023 (demo)",
-                "description": "Demonstracyjne głosowanie oparte na realnej nazwie wyborów parlamentarnych w Polsce.",
-                "start_days_offset": 21,
-            },
-            {
-                "type_code": "EUROPEAN_PARLIAMENT_RP",
-                "name": "Wybory do Parlamentu Europejskiego 2024 (demo)",
-                "description": "Demonstracyjne głosowanie oparte na realnej nazwie wyborów europejskich w Polsce.",
-                "start_days_offset": 42,
-            },
-        ]
-
-        for election_index, election_seed in enumerate(elections_to_seed):
-            election_type = ElectionType.objects.get(code=election_seed["type_code"])
-            election, _ = Election.objects.update_or_create(
-                name=election_seed["name"],
-                defaults={
-                    "election_type": election_type,
-                    "election_status": election_status,
-                    "organizational_unit": demo_unit,
-                    "description": election_seed["description"],
-                    "is_secret": True,
-                    "created_by_user": admin_user,
-                },
+            self._upsert_person_for_user(
+                user=politician_user,
+                first_name=first_name,
+                last_name=last_name,
+                identifier=identifier,
+                organizational_unit=seeded_committees[index % len(seeded_committees)],
             )
 
-            start_at = now + timedelta(days=election_seed["start_days_offset"])
-            end_at = start_at + timedelta(days=14)
-            ElectionSchedule.objects.update_or_create(
-                election=election,
-                defaults={
-                    "start_at": start_at,
-                    "end_at": end_at,
-                    "results_publish_at": end_at + timedelta(days=1),
-                },
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Utworzono lokalne dane demo: 20 przykładowych użytkowników, komitety i polityków (bez wyborów)."
             )
-            VotingRule.objects.update_or_create(
-                election=election,
-                defaults={
-                    "min_choices": 1,
-                    "max_choices": 1,
-                    "allow_blank_vote": False,
-                    "allow_vote_change": False,
-                    "requires_turnout_threshold": False,
-                    "turnout_threshold_percent": None,
-                },
-            )
+        )
 
-            for candidate_number, candidate_person in enumerate(candidate_people, start=1):
-                ElectionCandidate.objects.update_or_create(
-                    election=election,
-                    person=candidate_person,
-                    defaults={
-                        "candidate_number": candidate_number,
-                        "campaign_description": (
-                            f"{candidate_person.first_name} {candidate_person.last_name} "
-                            f"- kandydat demonstracyjny w głosowaniu nr {election_index + 1}."
-                        ),
-                        "is_approved": True,
-                        "approved_at": now,
-                    },
-                )
+    def _upsert_person_for_user(self, *, user, first_name, last_name, identifier, organizational_unit):
+        existing_for_user = Person.objects.filter(user=user).first()
+        existing_for_identifier = Person.objects.filter(student_or_employee_no=identifier).first()
 
-            VotingEligibility.objects.update_or_create(
-                election=election,
-                person=voter_person,
-                defaults={"eligibility_status": VotingEligibility.EligibilityStatus.GRANTED},
-            )
+        if existing_for_identifier and existing_for_identifier.user_id != user.id:
+            if existing_for_user and existing_for_user.pk != existing_for_identifier.pk:
+                existing_for_user.delete()
+            person = existing_for_identifier
+        elif existing_for_user:
+            person = existing_for_user
+        elif existing_for_identifier:
+            person = existing_for_identifier
+        else:
+            person = Person(user=user)
 
+        person.user = user
+        person.first_name = first_name
+        person.last_name = last_name
+        person.student_or_employee_no = identifier
+        person.organizational_unit = organizational_unit
+        person.save()
