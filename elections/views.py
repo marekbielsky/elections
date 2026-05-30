@@ -1,9 +1,11 @@
+import secrets
 from django.contrib.auth import get_user_model, login as auth_login, logout as auth_logout
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .forms import (
+    CastVoteForm,
     ElectionCandidateCreateForm,
     ElectionCreateForm,
     ElectionLifecycleActionForm,
@@ -19,16 +21,36 @@ from .models import (
     ElectionType,
     OrganizationalUnit,
     Permission,
+    Person,
     Role,
     RolePermission,
     UserRole,
+    VotingToken,
 )
 from .rbac import PermissionCodes, require_permission, wants_json_response
-from .services import ElectionLifecycleError, ElectionLifecycleService
+from .services import ElectionLifecycleError, ElectionLifecycleService, VotingError, VotingService
 
 
 def healthz_view(request):
     return HttpResponse("ok")
+def _ensure_person_profile(user):
+    if not user:
+        return None
+    profile = Person.objects.filter(user=user).first()
+    if profile:
+        return profile
+    base_identifier = f"AUTO-{user.id}"
+    identifier = base_identifier
+    suffix = 1
+    while Person.objects.filter(student_or_employee_no=identifier).exists():
+        suffix += 1
+        identifier = f"{base_identifier}-{suffix}"
+    return Person.objects.create(
+        user=user,
+        first_name=(user.first_name or user.username or "Użytkownik")[:100],
+        last_name=(user.last_name or "Systemowy")[:150],
+        student_or_employee_no=identifier,
+    )
 
 
 def register_view(request):
@@ -39,6 +61,7 @@ def register_view(request):
         if form.is_valid():
             user = form.save()
             UserRole.objects.get_or_create(user=user, defaults={"role": UserRole.Role.USER})
+            _ensure_person_profile(user)
             auth_login(request, user)
             return redirect("home")
     else:
@@ -54,6 +77,7 @@ def login_view(request):
         user = form.get_user()
         auth_login(request, user)
         UserRole.objects.get_or_create(user=user, defaults={"role": UserRole.Role.USER})
+        _ensure_person_profile(user)
         return redirect("home")
     return render(request, "elections/auth/login.html", {"form": form})
 
@@ -69,13 +93,27 @@ def home_view(request):
 
 
 def candidates_list_view(request):
-    candidates = ElectionCandidate.objects.select_related(
+    elections = Election.objects.order_by("name")
+    selected_election_id = request.GET.get("election_id", "").strip()
+    candidates_queryset = ElectionCandidate.objects.select_related(
         "person",
         "election",
-    ).all()
+    ).order_by("candidate_number", "person__last_name", "person__first_name")
+    if not selected_election_id and elections.exists():
+        selected_election_id = str(elections.first().id)
+
+    if selected_election_id and selected_election_id != "all":
+        try:
+            candidates_queryset = candidates_queryset.filter(election_id=int(selected_election_id))
+        except ValueError:
+            selected_election_id = str(elections.first().id) if elections.exists() else ""
+            if selected_election_id:
+                candidates_queryset = candidates_queryset.filter(election_id=int(selected_election_id))
 
     context = {
-        "candidates": candidates,
+        "candidates": candidates_queryset,
+        "selected_election_id": selected_election_id,
+        "elections": elections,
     }
     return render(request, "elections/candidates/list.html", context)
 
@@ -187,6 +225,7 @@ def _build_calendar_context(*, request, elections_queryset):
 
 
 def elections_list_view(request):
+    ElectionLifecycleService.close_overdue_elections()
     elections = Election.objects.select_related(
         "election_type",
         "election_status",
@@ -211,6 +250,7 @@ def calendar_view(request):
     return render(request, "elections/calendar/index.html", context)
 
 def results_list_view(request):
+    ElectionLifecycleService.close_overdue_elections()
     results = ElectionResult.objects.select_related(
         "election",
         "generated_by_user",
@@ -220,6 +260,58 @@ def results_list_view(request):
         "results": results,
     }
     return render(request, "elections/results/list.html", context)
+
+
+@require_permission(PermissionCodes.VOTING_CAST)
+def vote_cast_view(request):
+    person = None
+    profile_error_message = None
+    if request.user.is_authenticated:
+        try:
+            person = request.user.person_profile
+        except Exception:
+            profile_error_message = "Twoje konto nie ma przypisanego profilu osoby i nie może oddać głosu."
+    success_message = None
+    if request.method == "POST":
+        form = CastVoteForm(request.POST, person=person)
+        if form.is_valid():
+            if person is None:
+                form.add_error(None, profile_error_message)
+            else:
+                election = form.cleaned_data["election"]
+                candidate_ids = [int(candidate_id) for candidate_id in form.cleaned_data.get("candidate_ids", [])]
+                try:
+                    token = VotingToken.objects.filter(election=election, person=person).first()
+                    if token and token.is_used and not election.voting_rule.allow_vote_change:
+                        raise VotingError("Głos został już oddany i nie można go zmienić.")
+                    raw_token = secrets.token_urlsafe(24)
+                    VotingService.issue_token(
+                        election=election,
+                        person=person,
+                        raw_token=raw_token,
+                    )
+                    result = VotingService.cast_vote(
+                        election=election,
+                        person=person,
+                        raw_token=raw_token,
+                        candidate_ids=candidate_ids,
+                        anonymous_key=form.cleaned_data.get("anonymous_key") or None,
+                    )
+                    success_message = (
+                        f"Głos został zapisany poprawnie (ID karty: {result.ballot_id})."
+                    )
+                    form = CastVoteForm(initial={"election": election.id}, person=person)
+                except VotingError as exc:
+                    form.add_error(None, str(exc))
+    else:
+        form = CastVoteForm(person=person)
+
+    context = {
+        "form": form,
+        "success_message": success_message,
+        "profile_error_message": profile_error_message if person is None else None,
+    }
+    return render(request, "elections/voting/cast.html", context)
 
 
 @require_permission(PermissionCodes.ELECTION_CREATE)

@@ -1,10 +1,16 @@
 {% extends 'elections/base.html' %}
 {% load static %}
+{% load rbac_tags %}
 
 {% block title %}Wybory{% endblock %}
 
 {% block content %}
     <h1>Lista wyborów</h1>
+    {% if request|has_app_permission:"election.create" %}
+        <p>
+            <a href="{% url 'election_create' %}">➕ Dodaj nowe wybory</a>
+        </p>
+    {% endif %}
 
     <img src="{% static 'elections/images/elections.png' %}" alt="Wybory" class="page-banner">
 

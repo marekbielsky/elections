@@ -29,6 +29,7 @@ urlpatterns = [
     path("elections/", views.elections_list_view, name="elections_list"),
     path("calendar/", views.calendar_view, name="calendar"),
     path("elections/create/", views.election_create_view, name="election_create"),
+    path("vote/", views.vote_cast_view, name="vote_cast"),
     path("results/", views.results_list_view, name="results_list"),
     path(
         "management/admin/overview/",

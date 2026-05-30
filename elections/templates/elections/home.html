@@ -28,6 +28,9 @@
         {% if request|has_app_permission:"election.create" %}
             <li><a href="{% url 'election_create' %}">Dodaj wybory</a></li>
         {% endif %}
+        {% if request|has_app_permission:"voting.cast" %}
+            <li><a href="{% url 'vote_cast' %}">Oddaj głos</a></li>
+        {% endif %}
         {% if request|has_app_permission:"result.read" %}
             <li><a href="{% url 'results_list' %}">Wyniki głosowania</a></li>
         {% endif %}

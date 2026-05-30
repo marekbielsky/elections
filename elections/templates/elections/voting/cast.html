@@ -1,0 +1,23 @@
+{% extends 'elections/base.html' %}
+
+{% block title %}Oddaj głos{% endblock %}
+
+{% block content %}
+    <h1>Oddaj głos</h1>
+    <p>Wybierz wybory i zaznacz kandydatów.</p>
+    {% if profile_error_message %}
+        <p class="form-message form-message-error"><strong>{{ profile_error_message }}</strong></p>
+    {% elif not form.fields.election.queryset %}
+        <p class="form-message"><strong>Brak trwających wyborów, do których masz dostęp.</strong></p>
+    {% endif %}
+
+    {% if success_message %}
+        <p class="form-message form-message-success"><strong>{{ success_message }}</strong></p>
+    {% endif %}
+
+    <form method="post" class="app-form">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">Wyślij głos</button>
+    </form>
+{% endblock %}

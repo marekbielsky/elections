@@ -1,15 +1,19 @@
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
+from django.utils import timezone
 
 from .models import (
+    Election,
     ElectionCandidate,
     ElectionStatus,
     ElectionType,
     OrganizationalUnit,
     Permission,
+    Person,
     Role,
     UserRole,
+    VotingEligibility,
 )
 from .services import ElectionLifecycleService
 
@@ -63,6 +67,12 @@ class ElectionCreateForm(forms.Form):
     max_choices = forms.IntegerField(min_value=1, initial=1, label="Maksymalna liczba wyborów")
     allow_blank_vote = forms.BooleanField(required=False, label="Dopuść pusty głos")
     allow_vote_change = forms.BooleanField(required=False, label="Dopuść zmianę głosu")
+    eligible_people = forms.ModelMultipleChoiceField(
+        queryset=Person.objects.select_related("user").order_by("last_name", "first_name"),
+        required=False,
+        label="Osoby uprawnione do głosowania",
+        help_text="Opcjonalnie wybierz osoby, które mogą oddać głos w tych wyborach.",
+    )
 
     def clean(self):
         cleaned_data = super().clean()
@@ -78,6 +88,7 @@ class ElectionCreateForm(forms.Form):
 
     def save(self, *, created_by_user=None):
         data = self.cleaned_data
+        eligible_people = list(data.get("eligible_people") or [])
         election = ElectionLifecycleService.create_election_with_config(
             election_type=data["election_type"],
             name=data["name"],
@@ -96,6 +107,18 @@ class ElectionCreateForm(forms.Form):
         if data.get("results_publish_at"):
             election.schedule.results_publish_at = data["results_publish_at"]
             election.schedule.save(update_fields=["results_publish_at"])
+        if eligible_people:
+            VotingEligibility.objects.bulk_create(
+                [
+                    VotingEligibility(
+                        election=election,
+                        person=person,
+                        eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+                    )
+                    for person in eligible_people
+                ],
+                ignore_conflicts=True,
+            )
         return election
 
 
@@ -158,3 +181,70 @@ class ElectionLifecycleActionForm(forms.Form):
         required=False,
         label="Wymuś zamknięcie (przed końcem harmonogramu)",
     )
+
+
+class CastVoteForm(forms.Form):
+    election = forms.ModelChoiceField(
+        queryset=Election.objects.select_related("election_status").order_by("name"),
+        label="Wybory",
+    )
+    candidate_ids = forms.MultipleChoiceField(
+        required=False,
+        label="Kandydaci",
+        widget=forms.CheckboxSelectMultiple,
+    )
+    anonymous_key = forms.CharField(
+        max_length=120,
+        required=False,
+        label="Klucz anonimowy (opcjonalnie)",
+        help_text="Jeśli puste, system wygeneruje go automatycznie.",
+    )
+
+    def __init__(self, *args, **kwargs):
+        person = kwargs.pop("person", None)
+        super().__init__(*args, **kwargs)
+        if person is not None:
+            now = timezone.now()
+            self.fields["election"].queryset = (
+                Election.objects.select_related("election_status", "schedule")
+                .filter(
+                    election_status__code="IN_PROGRESS",
+                    schedule__start_at__lte=now,
+                    schedule__end_at__gte=now,
+                    eligibilities__person=person,
+                    eligibilities__eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+                )
+                .distinct()
+                .order_by("name")
+            )
+        else:
+            self.fields["election"].queryset = Election.objects.none()
+        selected_election_id = None
+        if self.is_bound:
+            selected_election_id = self.data.get("election")
+        else:
+            initial_election = self.initial.get("election") if self.initial else None
+            if initial_election is not None:
+                selected_election_id = getattr(initial_election, "id", initial_election)
+        self.fields["candidate_ids"].choices = self._candidate_choices(selected_election_id)
+
+    @staticmethod
+    def _candidate_choices(election_id):
+        if not election_id:
+            return []
+        try:
+            election_id_int = int(election_id)
+        except (TypeError, ValueError):
+            return []
+        candidates = (
+            ElectionCandidate.objects.select_related("person")
+            .filter(election_id=election_id_int, is_approved=True)
+            .order_by("candidate_number", "person__last_name", "person__first_name")
+        )
+        return [
+            (
+                str(candidate.id),
+                f"{candidate.candidate_number}. {candidate.person.first_name} {candidate.person.last_name}",
+            )
+            for candidate in candidates
+        ]

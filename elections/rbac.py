@@ -73,6 +73,8 @@ def wants_json_response(request: HttpRequest) -> bool:
 def _resolve_role_code(request: HttpRequest) -> tuple[str, str]:
 
     if request.user.is_authenticated:
+        if request.user.is_superuser or request.user.is_staff:
+            return UserRole.Role.ADMIN, "django_admin"
         role_profile = UserRole.objects.filter(user=request.user).first()
         if role_profile:
             return role_profile.role, "auth_user"

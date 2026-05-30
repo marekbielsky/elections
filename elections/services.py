@@ -48,6 +48,25 @@ class CastVoteResult:
 
 class ElectionLifecycleService:
     @staticmethod
+    def close_overdue_elections(*, at_time=None, generated_by_user=None) -> int:
+        now = at_time or timezone.now()
+        overdue_elections = Election.objects.select_related("election_status", "schedule").filter(
+            election_status__code__in=["PUBLISHED", "IN_PROGRESS"],
+            schedule__end_at__lte=now,
+        )
+        closed_count = 0
+        for election in overdue_elections:
+            try:
+                ElectionLifecycleService.close_election(
+                    election,
+                    at_time=now,
+                    generated_by_user=generated_by_user,
+                )
+                closed_count += 1
+            except ElectionLifecycleError:
+                continue
+        return closed_count
+    @staticmethod
     def _ensure_no_schedule_collision(*, start_at, end_at, organizational_unit) -> None:
         if organizational_unit is None:
             return

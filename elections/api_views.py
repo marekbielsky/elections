@@ -95,6 +95,11 @@ class ElectionCreateRequestSerializer(serializers.Serializer):
     max_choices = serializers.IntegerField(default=1, min_value=1)
     allow_blank_vote = serializers.BooleanField(default=False)
     allow_vote_change = serializers.BooleanField(default=False)
+    eligible_person_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        allow_empty=True,
+    )
 
     def validate(self, attrs):
         if attrs["start_at"] >= attrs["end_at"]:
@@ -169,6 +174,15 @@ class ElectionCreateApiView(APIView):
         created_by_user = None
         if data.get("created_by_user_id") is not None:
             created_by_user = get_object_or_404(get_user_model(), id=data["created_by_user_id"])
+        eligible_people = []
+        eligible_person_ids = data.get("eligible_person_ids") or []
+        if eligible_person_ids:
+            eligible_people = list(Person.objects.filter(id__in=eligible_person_ids))
+            if len(eligible_people) != len(set(eligible_person_ids)):
+                return Response(
+                    {"detail": "One or more eligible_person_ids are invalid."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         try:
             election = ElectionLifecycleService.create_election_with_config(
@@ -191,6 +205,18 @@ class ElectionCreateApiView(APIView):
         if data.get("results_publish_at") is not None:
             election.schedule.results_publish_at = data["results_publish_at"]
             election.schedule.save(update_fields=["results_publish_at"])
+        if eligible_people:
+            VotingEligibility.objects.bulk_create(
+                [
+                    VotingEligibility(
+                        election=election,
+                        person=person,
+                        eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+                    )
+                    for person in eligible_people
+                ],
+                ignore_conflicts=True,
+            )
 
         return Response(_serialize_election(election), status=status.HTTP_201_CREATED)
 
@@ -286,6 +312,7 @@ class ElectionResultsApiView(APIView):
     permission_classes = [RBACPermission]
     required_permission_code = PermissionCodes.RESULT_READ
     def get(self, request, election_id: int):
+        ElectionLifecycleService.close_overdue_elections()
         election = get_object_or_404(Election, id=election_id)
         if election.election_status.code != "CLOSED":
             return Response(
@@ -325,6 +352,7 @@ class HistoricalTrendsApiView(APIView):
     required_permission_code = PermissionCodes.RESULT_READ
 
     def get(self, request):
+        ElectionLifecycleService.close_overdue_elections()
         window = request.query_params.get("window", "12")
         try:
             window_int = int(window)
@@ -512,6 +540,9 @@ class ElectionResultPdfGenerateApiView(APIView):
     required_permission_code = PermissionCodes.RESULT_READ
 
     def post(self, request, election_id: int):
+        ElectionLifecycleService.close_overdue_elections(
+            generated_by_user=request.user if request.user.is_authenticated else None,
+        )
         election = get_object_or_404(Election.objects.select_related("schedule", "election_status"), id=election_id)
         if election.election_status.code != "CLOSED":
             return Response(
@@ -562,6 +593,7 @@ class ElectionAnalyticsApiView(APIView):
     required_permission_code = PermissionCodes.RESULT_READ
 
     def get(self, request, election_id: int):
+        ElectionLifecycleService.close_overdue_elections()
         election = get_object_or_404(Election.objects.select_related("schedule", "election_status"), id=election_id)
         if election.election_status.code != "CLOSED":
             return Response(
@@ -706,6 +738,7 @@ class TopTurnoutElectionsApiView(APIView):
     required_permission_code = PermissionCodes.RESULT_READ
 
     def get(self, request):
+        ElectionLifecycleService.close_overdue_elections()
         top_n = request.query_params.get("top_n", "5")
         try:
             top_n_int = int(top_n)

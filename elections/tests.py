@@ -13,6 +13,7 @@ from .models import (
     Election,
     ElectionCandidate,
     ElectionEvent,
+    ElectionResult,
     GeneratedDocument,
     ElectionSchedule,
     ElectionStatus,
@@ -321,6 +322,7 @@ class AuthenticationFlowTests(TestCase):
         user_model = get_user_model()
         user = user_model.objects.get(username="new_auth_user")
         self.assertTrue(UserRole.objects.filter(user=user, role=UserRole.Role.USER).exists())
+        self.assertTrue(Person.objects.filter(user=user).exists())
         self.assertEqual(int(self.client.session["_auth_user_id"]), user.id)
 
     def test_login_creates_missing_default_role_profile(self):
@@ -331,6 +333,7 @@ class AuthenticationFlowTests(TestCase):
             password="StrongPass123!",
         )
         self.assertFalse(UserRole.objects.filter(user=user).exists())
+        self.assertFalse(Person.objects.filter(user=user).exists())
 
         response = self.client.post(
             reverse("login"),
@@ -341,6 +344,7 @@ class AuthenticationFlowTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(UserRole.objects.filter(user=user, role=UserRole.Role.USER).exists())
+        self.assertTrue(Person.objects.filter(user=user).exists())
 
     def test_logout_post_clears_authenticated_session(self):
         user_model = get_user_model()
@@ -406,6 +410,7 @@ class RBACNavigationVisibilityTests(TestCase):
         self.assertContains(response, "Wybory")
         self.assertContains(response, "Kalendarz")
         self.assertContains(response, "Wyniki głosowania")
+        self.assertContains(response, "Oddaj głos")
         self.assertNotContains(response, "Dodaj kandydata")
         self.assertNotContains(response, "Dodaj wybory")
         self.assertNotContains(response, "Panel administracyjny")
@@ -469,6 +474,241 @@ class RBACNavigationVisibilityTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["current_role"], UserRole.Role.USER)
+
+    @override_settings(
+        STORAGES={
+            "default": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+    )
+    def test_staff_user_without_role_profile_gets_admin_navigation(self):
+        user_model = get_user_model()
+        staff_user = user_model.objects.create_user(
+            username="staff_without_role",
+            email="staff_without_role@example.com",
+            password="StrongPass123!",
+            is_staff=True,
+        )
+        self.assertFalse(UserRole.objects.filter(user=staff_user).exists())
+
+        self.client.force_login(staff_user)
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Dodaj wybory")
+        self.assertContains(response, "Panel administracyjny")
+
+class ElectionCreationAndAutoCloseFlowTests(TestCase):
+    @override_settings(
+        STORAGES={
+            "default": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+    )
+    def test_admin_can_create_election_with_selected_eligible_voters(self):
+        user_model = get_user_model()
+        admin = user_model.objects.create_user(
+            username="flow_admin",
+            email="flow_admin@example.com",
+            password="StrongPass123!",
+        )
+        UserRole.objects.create(user=admin, role=UserRole.Role.ADMIN)
+        voter1_user = user_model.objects.create_user(
+            username="flow_voter_1",
+            email="flow_voter_1@example.com",
+            password="StrongPass123!",
+        )
+        voter2_user = user_model.objects.create_user(
+            username="flow_voter_2",
+            email="flow_voter_2@example.com",
+            password="StrongPass123!",
+        )
+        voter1 = Person.objects.create(
+            user=voter1_user,
+            first_name="Ala",
+            last_name="Nowak",
+            student_or_employee_no="FLOW-001",
+        )
+        voter2 = Person.objects.create(
+            user=voter2_user,
+            first_name="Olek",
+            last_name="Kowal",
+            student_or_employee_no="FLOW-002",
+        )
+        election_type = ElectionType.objects.create(code="FLOW_WEB", name="Flow web")
+        election_status = ElectionStatus.objects.create(code="DRAFT", name="Draft")
+        start_at = timezone.now() + timedelta(days=1)
+        end_at = start_at + timedelta(days=1)
+
+        self.client.force_login(admin)
+        response = self.client.post(
+            reverse("election_create"),
+            {
+                "name": "Nowe wybory z uprawnionymi",
+                "description": "Test przypisania uprawnionych",
+                "election_type": election_type.id,
+                "election_status": election_status.id,
+                "is_secret": "on",
+                "start_at": start_at.strftime("%Y-%m-%dT%H:%M"),
+                "end_at": end_at.strftime("%Y-%m-%dT%H:%M"),
+                "min_choices": 1,
+                "max_choices": 1,
+                "eligible_people": [voter1.id, voter2.id],
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        election = Election.objects.get(name="Nowe wybory z uprawnionymi")
+        eligible_ids = set(
+            VotingEligibility.objects.filter(
+                election=election,
+                eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+            ).values_list("person_id", flat=True)
+        )
+        self.assertEqual(eligible_ids, {voter1.id, voter2.id})
+
+    @override_settings(
+        STORAGES={
+            "default": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+    )
+    def test_user_can_cast_vote_from_ui(self):
+        user_model = get_user_model()
+        voter_user = user_model.objects.create_user(
+            username="ui_voter",
+            email="ui_voter@example.com",
+            password="StrongPass123!",
+        )
+        candidate_user = user_model.objects.create_user(
+            username="ui_candidate",
+            email="ui_candidate@example.com",
+            password="StrongPass123!",
+        )
+        UserRole.objects.create(user=voter_user, role=UserRole.Role.USER)
+        voter_person = Person.objects.create(
+            user=voter_user,
+            first_name="Ula",
+            last_name="Głosująca",
+            student_or_employee_no="UI-VOTER-001",
+        )
+        candidate_person = Person.objects.create(
+            user=candidate_user,
+            first_name="Karol",
+            last_name="Kandydat",
+            student_or_employee_no="UI-CAND-001",
+        )
+        election_type = ElectionType.objects.create(code="UI_VOTE", name="UI vote")
+        status_in_progress = ElectionStatus.objects.create(code="IN_PROGRESS", name="In progress")
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=election_type,
+            name="UI Voting Election",
+            election_status=status_in_progress,
+            start_at=now - timedelta(hours=1),
+            end_at=now + timedelta(hours=1),
+            created_by_user=voter_user,
+        )
+        candidate = ElectionCandidate.objects.create(
+            election=election,
+            person=candidate_person,
+            candidate_number=1,
+            is_approved=True,
+        )
+        VotingEligibility.objects.create(
+            election=election,
+            person=voter_person,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+        VotingService.issue_token(
+            election=election,
+            person=voter_person,
+            raw_token="ui-vote-token",
+        )
+
+        self.client.force_login(voter_user)
+        response = self.client.post(
+            reverse("vote_cast"),
+            {
+                "election": election.id,
+                "raw_token": "ui-vote-token",
+                "candidate_ids": [str(candidate.id)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Głos został zapisany poprawnie")
+        participation = VotingParticipation.objects.get(election=election, person=voter_person)
+        self.assertTrue(participation.has_voted)
+
+    @override_settings(
+        STORAGES={
+            "default": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+    )
+    def test_vote_form_lists_only_currently_available_elections_for_user(self):
+        user_model = get_user_model()
+        voter_user = user_model.objects.create_user(
+            username="ui_scope_voter",
+            email="ui_scope_voter@example.com",
+            password="StrongPass123!",
+        )
+        UserRole.objects.create(user=voter_user, role=UserRole.Role.USER)
+        voter_person = Person.objects.create(
+            user=voter_user,
+            first_name="Iga",
+            last_name="Zakres",
+            student_or_employee_no="UI-SCOPE-001",
+        )
+        election_type = ElectionType.objects.create(code="UI_SCOPE", name="UI scope")
+        status_in_progress = ElectionStatus.objects.create(code="IN_PROGRESS", name="In progress")
+        now = timezone.now()
+
+        visible_election = ElectionLifecycleService.create_election_with_config(
+            election_type=election_type,
+            name="Wybory dostępne",
+            election_status=status_in_progress,
+            start_at=now - timedelta(hours=1),
+            end_at=now + timedelta(hours=2),
+            created_by_user=voter_user,
+        )
+        hidden_election = ElectionLifecycleService.create_election_with_config(
+            election_type=election_type,
+            name="Wybory bez dostępu",
+            election_status=status_in_progress,
+            start_at=now - timedelta(hours=1),
+            end_at=now + timedelta(hours=2),
+            created_by_user=voter_user,
+        )
+
+        VotingEligibility.objects.create(
+            election=visible_election,
+            person=voter_person,
+            eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+        )
+
+        self.client.force_login(voter_user)
+        response = self.client.get(reverse("vote_cast"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Wybory dostępne")
+        self.assertNotContains(response, "Wybory bez dostępu")
 
 
 class AdminWorkflowTests(TestCase):
@@ -942,6 +1182,38 @@ class ElectionApiEndpointsTests(APITestCase):
         self.assertEqual(response.data["status"], "DRAFT")
         self.assertEqual(response.data["name"], "API Created Election")
 
+    def test_create_election_api_assigns_eligible_voters(self):
+        now = timezone.now()
+        payload = {
+            "election_type_id": self.election_type.id,
+            "election_status_code": "DRAFT",
+            "name": "API Election With Eligible Voters",
+            "description": "Created via API with eligibility assignment",
+            "is_secret": True,
+            "start_at": (now + timedelta(hours=1)).isoformat(),
+            "end_at": (now + timedelta(hours=2)).isoformat(),
+            "min_choices": 1,
+            "max_choices": 1,
+            "allow_blank_vote": False,
+            "allow_vote_change": False,
+            "eligible_person_ids": [self.person1.id, self.person2.id],
+        }
+        response = self.client.post(
+            reverse("api_election_create"),
+            payload,
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 201)
+        election = Election.objects.get(id=response.data["id"])
+        eligible_ids = set(
+            VotingEligibility.objects.filter(
+                election=election,
+                eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
+            ).values_list("person_id", flat=True)
+        )
+        self.assertEqual(eligible_ids, {self.person1.id, self.person2.id})
+
     def test_create_election_api_rejects_schedule_collision_for_same_unit(self):
         unit = OrganizationalUnit.objects.create(name="API Collision Unit", unit_type="FACULTY")
         now = timezone.now()
@@ -976,6 +1248,28 @@ class ElectionApiEndpointsTests(APITestCase):
             HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_results_api_auto_closes_overdue_election_and_returns_results(self):
+        now = timezone.now()
+        election = ElectionLifecycleService.create_election_with_config(
+            election_type=self.election_type,
+            name="Overdue Auto Close Election",
+            election_status=self.status_in_progress,
+            start_at=now - timedelta(hours=3),
+            end_at=now - timedelta(hours=1),
+            created_by_user=self.user,
+        )
+        self.assertEqual(election.election_status.code, "IN_PROGRESS")
+
+        response = self.client.get(
+            reverse("api_election_results", kwargs={"election_id": election.id}),
+            format="json",
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        election.refresh_from_db()
+        self.assertEqual(election.election_status.code, "CLOSED")
+        self.assertTrue(ElectionResult.objects.filter(election=election).exists())
 
     def test_lifecycle_endpoints(self):
         now = timezone.now()

@@ -44,6 +44,9 @@
                 {% if request|has_app_permission:"election.create" %}
                     <a href="{% url 'election_create' %}">Dodaj wybory</a>
                 {% endif %}
+                {% if request|has_app_permission:"voting.cast" %}
+                    <a href="{% url 'vote_cast' %}">Oddaj głos</a>
+                {% endif %}
                 {% if request|has_app_permission:"result.read" %}
                     <a href="{% url 'results_list' %}">Wyniki głosowania</a>
                 {% endif %}

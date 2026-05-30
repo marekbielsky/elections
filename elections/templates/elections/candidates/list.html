@@ -7,6 +7,21 @@
     <h1>Lista kandydatów</h1>
 
     <img src="{% static 'elections/images/candidates.png' %}" alt="Kandydaci" class="page-banner">
+    <form method="get" class="app-form">
+        <p>
+            <label for="id_election_id">Wybory</label>
+            <select id="id_election_id" name="election_id">
+                <option value="all" {% if selected_election_id == "all" %}selected{% endif %}>Wszystkie wybory</option>
+                {% for election in elections %}
+                    <option value="{{ election.id }}" {% if selected_election_id == election.id|stringformat:"s" %}selected{% endif %}>
+                        {{ election.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </p>
+        <p class="filter-note">Domyślnie wyświetlane są kandydatury dla jednej elekcji, aby uniknąć pozornego efektu duplikatów.</p>
+        <button type="submit">Filtruj</button>
+    </form>
 
     {% if candidates %}
         <table border="1" cellpadding="8" cellspacing="0">
