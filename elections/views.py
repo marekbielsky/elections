@@ -92,6 +92,8 @@ def _build_calendar_context(*, request, elections_queryset):
     election_type_filter = request.GET.get("election_type", "").strip()
     organizational_unit_filter = request.GET.get("organizational_unit_id", "").strip()
     within_hours_filter = request.GET.get("within_hours", "72").strip() or "72"
+    event_date_from_filter = request.GET.get("event_date_from", "").strip()
+    event_date_to_filter = request.GET.get("event_date_to", "").strip()
 
     filtered_elections = elections_queryset
     if election_type_filter:
@@ -118,6 +120,19 @@ def _build_calendar_context(*, request, elections_queryset):
     horizon = now + timezone.timedelta(hours=within_hours)
     calendar_events = []
     reminders = []
+    event_date_from = None
+    event_date_to = None
+    if not calendar_error:
+        try:
+            if event_date_from_filter:
+                event_date_from = timezone.datetime.strptime(event_date_from_filter, "%Y-%m-%d").date()
+            if event_date_to_filter:
+                event_date_to = timezone.datetime.strptime(event_date_to_filter, "%Y-%m-%d").date()
+            if event_date_from and event_date_to and event_date_from > event_date_to:
+                calendar_error = "Data początkowa filtra nie może być późniejsza niż data końcowa."
+        except ValueError:
+            calendar_error = "Nieprawidłowy format daty filtra. Użyj formatu RRRR-MM-DD."
+
     if not calendar_error:
         for election in filtered_elections:
             if not hasattr(election, "schedule"):
@@ -131,6 +146,11 @@ def _build_calendar_context(*, request, elections_queryset):
                 events_for_election.append(("RESULTS_PUBLISH", schedule.results_publish_at))
 
             for event_type, event_at in events_for_election:
+                event_date = event_at.date()
+                if event_date_from and event_date < event_date_from:
+                    continue
+                if event_date_to and event_date > event_date_to:
+                    continue
                 event = {
                     "event_type": event_type,
                     "event_at": event_at,
@@ -159,6 +179,8 @@ def _build_calendar_context(*, request, elections_queryset):
         "election_type_filter": election_type_filter,
         "organizational_unit_filter": organizational_unit_filter,
         "within_hours_filter": within_hours,
+        "event_date_from_filter": event_date_from_filter,
+        "event_date_to_filter": event_date_to_filter,
         "election_types": ElectionType.objects.order_by("name"),
         "organizational_units": OrganizationalUnit.objects.filter(is_active=True).order_by("name"),
     }

@@ -6,6 +6,7 @@
 {% block content %}
     <h1>Kalendarz wyborów</h1>
     <p>Przeglądaj wydarzenia wyborcze i nadchodzące przypomnienia.</p>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 
     <form method="get" class="app-form">
         <p>
@@ -33,6 +34,14 @@
         <p>
             <label for="id_within_hours">Zakres przypomnień (godziny)</label>
             <input id="id_within_hours" type="number" name="within_hours" min="1" max="720" value="{{ within_hours_filter }}">
+        </p>
+        <p>
+            <label for="id_event_date_from">Data od</label>
+            <input id="id_event_date_from" type="text" name="event_date_from" value="{{ event_date_from_filter }}" placeholder="RRRR-MM-DD">
+        </p>
+        <p>
+            <label for="id_event_date_to">Data do</label>
+            <input id="id_event_date_to" type="text" name="event_date_to" value="{{ event_date_to_filter }}" placeholder="RRRR-MM-DD">
         </p>
         <button type="submit">Odśwież</button>
     </form>
@@ -94,4 +103,9 @@
     {% else %}
         <p>Brak nadchodzących przypomnień w wybranym zakresie.</p>
     {% endif %}
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        flatpickr("#id_event_date_from", { dateFormat: "Y-m-d", allowInput: true });
+        flatpickr("#id_event_date_to", { dateFormat: "Y-m-d", allowInput: true });
+    </script>
 {% endblock %}
