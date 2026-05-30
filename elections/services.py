@@ -523,6 +523,64 @@ class DatabaseProcedureService:
             "recomputed_results_count": recomputed_results_count,
             "winners": winners,
         }
+class DatabaseFunctionService:
+    @staticmethod
+    def get_top_turnout_snapshot(*, limit: int = 5) -> dict:
+        safe_limit = max(1, min(limit, 50))
+        rows = (
+            ElectionResult.objects.select_related("election")
+            .order_by("-turnout_percent", "-voters_count", "election_id")[:safe_limit]
+        )
+        return {
+            "limit": safe_limit,
+            "rows": [
+                {
+                    "election_id": row.election_id,
+                    "election_name": row.election.name,
+                    "turnout_percent": str(row.turnout_percent),
+                    "voters_count": row.voters_count,
+                }
+                for row in rows
+            ],
+        }
+
+    @staticmethod
+    def get_election_status_distribution() -> dict:
+        distribution = (
+            Election.objects.select_related("election_status")
+            .values("election_status__code")
+            .annotate(elections_count=Count("id"))
+            .order_by("election_status__code")
+        )
+        return {
+            "rows": [
+                {
+                    "status_code": row["election_status__code"],
+                    "elections_count": row["elections_count"],
+                }
+                for row in distribution
+            ]
+        }
+
+    @staticmethod
+    def get_candidate_approval_summary() -> dict:
+        total_candidates = ElectionCandidate.objects.count()
+        approved_candidates = ElectionCandidate.objects.filter(is_approved=True).count()
+        pending_candidates = total_candidates - approved_candidates
+        approval_percent = (
+            Decimal("0.00")
+            if total_candidates == 0
+            else (Decimal(approved_candidates) * Decimal("100") / Decimal(total_candidates)).quantize(
+                Decimal("0.01"),
+                rounding=ROUND_HALF_UP,
+            )
+        )
+        return {
+            "total_candidates": total_candidates,
+            "approved_candidates": approved_candidates,
+            "pending_candidates": pending_candidates,
+            "approval_percent": str(approval_percent),
+        }
 
 
 class ElectionResultDocumentService:

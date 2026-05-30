@@ -216,6 +216,15 @@ class DatabaseProcedureActionForm(forms.Form):
         ),
         label="Procedura aplikacyjna",
     )
+class DatabaseFunctionActionForm(forms.Form):
+    action = forms.ChoiceField(
+        choices=(
+            ("top_turnout_snapshot", "Top frekwencja (snapshot)"),
+            ("status_distribution", "Rozkład statusów wyborów"),
+            ("candidate_approval_summary", "Podsumowanie akceptacji kandydatów"),
+        ),
+        label="Funkcja aplikacyjna",
+    )
 
 class CastVoteForm(forms.Form):
     election = forms.ModelChoiceField(

@@ -64,4 +64,15 @@
         </p>
         <button type="submit">Uruchom procedurę</button>
     </form>
+
+    <h3>Funkcje aplikacyjne (odczyt):</h3>
+    <p>Uruchom funkcje analityczne zwracające dane bez modyfikacji stanu bazy.</p>
+    <form method="post" action="{% url 'admin_database_function_action' %}" class="app-form">
+        {% csrf_token %}
+        <p>
+            <label for="id_action">{{ database_function_form.action.label }}</label>
+            {{ database_function_form.action }}
+        </p>
+        <button type="submit">Uruchom funkcję</button>
+    </form>
 {% endblock %}

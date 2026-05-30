@@ -931,6 +931,48 @@ class AdminWorkflowTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_admin_can_execute_database_function_actions(self):
+        self.client.force_login(self.admin_user)
+        top_turnout_response = self.client.post(
+            reverse("admin_database_function_action"),
+            {"action": "top_turnout_snapshot"},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(top_turnout_response.status_code, 200)
+        self.assertEqual(top_turnout_response.json()["status"], "ok")
+        self.assertEqual(top_turnout_response.json()["action"], "top_turnout_snapshot")
+
+        distribution_response = self.client.post(
+            reverse("admin_database_function_action"),
+            {"action": "status_distribution"},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(distribution_response.status_code, 200)
+        self.assertEqual(distribution_response.json()["status"], "ok")
+        self.assertEqual(distribution_response.json()["action"], "status_distribution")
+
+        approval_response = self.client.post(
+            reverse("admin_database_function_action"),
+            {"action": "candidate_approval_summary"},
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(approval_response.status_code, 200)
+        self.assertEqual(approval_response.json()["status"], "ok")
+        self.assertEqual(approval_response.json()["action"], "candidate_approval_summary")
+
+    def test_user_cannot_execute_database_function_actions(self):
+        self.client.force_login(self.normal_user)
+        response = self.client.post(
+            reverse("admin_database_function_action"),
+            {"action": "top_turnout_snapshot"},
+            HTTP_X_USER_ROLE=UserRole.Role.USER,
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_admin_can_toggle_candidate_approval_from_candidates_list(self):
         person = Person.objects.create(
             user=self.normal_user,

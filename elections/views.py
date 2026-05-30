@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from .forms import (
     CastVoteForm,
+    DatabaseFunctionActionForm,
     DatabaseProcedureActionForm,
     ElectionCandidateCreateForm,
     ElectionCreateForm,
@@ -36,6 +37,7 @@ from .models import (
 )
 from .rbac import PermissionCodes, require_permission, wants_json_response
 from .services import (
+    DatabaseFunctionService,
     DatabaseProcedureService,
     ElectionLifecycleError,
     ElectionLifecycleService,
@@ -457,6 +459,7 @@ def admin_overview_view(request):
     }
     context = {
         "summary": summary,
+        "database_function_form": DatabaseFunctionActionForm(),
         "database_procedure_form": DatabaseProcedureActionForm(),
     }
     if wants_json_response(request):
@@ -494,6 +497,44 @@ def admin_database_procedure_action_view(request):
         if wants_json_response(request):
             return JsonResponse({"detail": "Unsupported action."}, status=400)
         messages.error(request, "Nieobsługiwana procedura aplikacyjna.")
+        return redirect("admin_overview")
+    if wants_json_response(request):
+        return JsonResponse(
+            {
+                "status": "ok",
+                "action": action,
+                "result": result,
+            }
+        )
+    messages.success(request, success_message)
+    return redirect("admin_overview")
+
+
+@login_required
+@require_permission(PermissionCodes.ADMIN_PANEL_VIEW)
+def admin_database_function_action_view(request):
+    if request.method != "POST":
+        return redirect("admin_overview")
+    form = DatabaseFunctionActionForm(request.POST)
+    if not form.is_valid():
+        if wants_json_response(request):
+            return JsonResponse({"errors": form.errors}, status=400)
+        messages.error(request, "Nie udało się uruchomić funkcji: nieprawidłowe dane formularza.")
+        return redirect("admin_overview")
+    action = form.cleaned_data["action"]
+    if action == "top_turnout_snapshot":
+        result = DatabaseFunctionService.get_top_turnout_snapshot(limit=5)
+        success_message = f"Funkcja wykonana: odczytano {len(result['rows'])} rekordów TOP frekwencji."
+    elif action == "status_distribution":
+        result = DatabaseFunctionService.get_election_status_distribution()
+        success_message = f"Funkcja wykonana: odczytano {len(result['rows'])} rekordów rozkładu statusów."
+    elif action == "candidate_approval_summary":
+        result = DatabaseFunctionService.get_candidate_approval_summary()
+        success_message = "Funkcja wykonana: odczytano podsumowanie akceptacji kandydatów."
+    else:
+        if wants_json_response(request):
+            return JsonResponse({"detail": "Unsupported action."}, status=400)
+        messages.error(request, "Nieobsługiwana funkcja aplikacyjna.")
         return redirect("admin_overview")
     if wants_json_response(request):
         return JsonResponse(
