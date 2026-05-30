@@ -354,6 +354,122 @@ class AuthenticationFlowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertNotIn("_auth_user_id", self.client.session)
 
+    @override_settings(
+        STORAGES={
+            "default": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+    )
+    def test_anonymous_user_sees_only_login_and_register_in_navigation(self):
+        response = self.client.get(reverse("login"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Zaloguj")
+        self.assertContains(response, "Zarejestruj")
+        self.assertNotContains(response, "Kandydaci")
+        self.assertNotContains(response, "Wybory")
+        self.assertNotContains(response, "Panel administracyjny")
+
+class RBACNavigationVisibilityTests(TestCase):
+    @override_settings(
+        STORAGES={
+            "default": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+    )
+    def test_authenticated_user_sees_only_tabs_allowed_for_user_role(self):
+        user_model = get_user_model()
+        user = user_model.objects.create_user(
+            username="regular_nav_user",
+            email="regular_nav_user@example.com",
+            password="StrongPass123!",
+        )
+        UserRole.objects.create(user=user, role=UserRole.Role.USER)
+        role_user, _ = Role.objects.get_or_create(code=UserRole.Role.USER, defaults={"name": "User"})
+        role_user.role_permissions.all().delete()
+        for permission_code in ("candidate.read", "committee.read", "election.read", "result.read", "voting.cast"):
+            permission, _ = Permission.objects.get_or_create(code=permission_code, defaults={"name": permission_code})
+            RolePermission.objects.get_or_create(role=role_user, permission=permission)
+
+        self.client.force_login(user)
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Kandydaci")
+        self.assertContains(response, "Wybory")
+        self.assertContains(response, "Kalendarz")
+        self.assertContains(response, "Wyniki głosowania")
+        self.assertNotContains(response, "Dodaj kandydata")
+        self.assertNotContains(response, "Dodaj wybory")
+        self.assertNotContains(response, "Panel administracyjny")
+
+    @override_settings(
+        STORAGES={
+            "default": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+    )
+    def test_authenticated_admin_sees_admin_and_create_tabs(self):
+        user_model = get_user_model()
+        admin = user_model.objects.create_user(
+            username="admin_nav_user",
+            email="admin_nav_user@example.com",
+            password="StrongPass123!",
+        )
+        UserRole.objects.create(user=admin, role=UserRole.Role.ADMIN)
+        role_admin, _ = Role.objects.get_or_create(code=UserRole.Role.ADMIN, defaults={"name": "Admin"})
+        role_admin.role_permissions.all().delete()
+        for permission_code in (
+            "candidate.read",
+            "candidate.create",
+            "committee.read",
+            "election.read",
+            "election.create",
+            "result.read",
+            "voting.cast",
+            "admin.panel.view",
+        ):
+            permission, _ = Permission.objects.get_or_create(code=permission_code, defaults={"name": permission_code})
+            RolePermission.objects.get_or_create(role=role_admin, permission=permission)
+
+        self.client.force_login(admin)
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Dodaj kandydata")
+        self.assertContains(response, "Dodaj wybory")
+        self.assertContains(response, "Panel administracyjny")
+
+    def test_authenticated_user_without_role_cannot_escalate_via_role_header(self):
+        user_model = get_user_model()
+        user = user_model.objects.create_user(
+            username="header_escalation_user",
+            email="header_escalation_user@example.com",
+            password="StrongPass123!",
+        )
+        self.assertFalse(UserRole.objects.filter(user=user).exists())
+
+        self.client.force_login(user)
+        response = self.client.get(
+            reverse("admin_users_roles"),
+            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
+            HTTP_ACCEPT="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["current_role"], UserRole.Role.USER)
+
 
 class AdminWorkflowTests(TestCase):
     @classmethod

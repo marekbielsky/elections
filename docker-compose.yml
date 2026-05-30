@@ -14,6 +14,15 @@ services:
       sh -c "python manage.py migrate &&
              python manage.py runserver 0.0.0.0:8000"
     restart: unless-stopped
+  sqlite_web:
+    image: coleifer/sqlite-web:latest
+    container_name: elections-sqlite-web
+    command: ["sqlite_web", "/data/db.sqlite3", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "8081:8080"
+    volumes:
+      - sqlite_data:/data
+    restart: unless-stopped
 
 volumes:
   sqlite_data:

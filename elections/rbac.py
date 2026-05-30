@@ -76,6 +76,7 @@ def _resolve_role_code(request: HttpRequest) -> tuple[str, str]:
         role_profile = UserRole.objects.filter(user=request.user).first()
         if role_profile:
             return role_profile.role, "auth_user"
+        return UserRole.Role.USER, "auth_user_default"
 
     role_from_header = (
         request.headers.get("X-User-Role", "").strip().upper()

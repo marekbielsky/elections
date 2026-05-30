@@ -1,4 +1,4 @@
-{% load static %}
+{% load static rbac_tags %}
 <!DOCTYPE html>
 <html lang="pl">
 <head>
@@ -26,16 +26,30 @@
 
     <nav class="main-nav">
         <div class="container nav-inner">
-            <a href="{% url 'home' %}">Strona główna</a>
-            <a href="{% url 'candidates_list' %}">Kandydaci</a>
-            <a href="{% url 'candidate_create' %}">Dodaj kandydata</a>
-            <a href="{% url 'committees_list' %}">Komitety wyborcze</a>
-            <a href="{% url 'elections_list' %}">Wybory</a>
-            <a href="{% url 'calendar' %}">Kalendarz</a>
-            <a href="{% url 'election_create' %}">Dodaj wybory</a>
-            <a href="{% url 'results_list' %}">Wyniki głosowania</a>
-            <a href="{% url 'admin_overview' %}">Panel administracyjny</a>
             {% if request.user.is_authenticated %}
+                <a href="{% url 'home' %}">Strona główna</a>
+                {% if request|has_app_permission:"candidate.read" %}
+                    <a href="{% url 'candidates_list' %}">Kandydaci</a>
+                {% endif %}
+                {% if request|has_app_permission:"candidate.create" %}
+                    <a href="{% url 'candidate_create' %}">Dodaj kandydata</a>
+                {% endif %}
+                {% if request|has_app_permission:"committee.read" %}
+                    <a href="{% url 'committees_list' %}">Komitety wyborcze</a>
+                {% endif %}
+                {% if request|has_app_permission:"election.read" %}
+                    <a href="{% url 'elections_list' %}">Wybory</a>
+                    <a href="{% url 'calendar' %}">Kalendarz</a>
+                {% endif %}
+                {% if request|has_app_permission:"election.create" %}
+                    <a href="{% url 'election_create' %}">Dodaj wybory</a>
+                {% endif %}
+                {% if request|has_app_permission:"result.read" %}
+                    <a href="{% url 'results_list' %}">Wyniki głosowania</a>
+                {% endif %}
+                {% if request|has_app_permission:"admin.panel.view" %}
+                    <a href="{% url 'admin_overview' %}">Panel administracyjny</a>
+                {% endif %}
                 <span class="nav-user">Zalogowany: {{ request.user.username }}</span>
                 <form method="post" action="{% url 'logout' %}" class="nav-logout-form">
                     {% csrf_token %}
