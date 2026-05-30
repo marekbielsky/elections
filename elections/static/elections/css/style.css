@@ -342,6 +342,20 @@ a:hover {
     color: #8f1d2d;
 }
 
+.content-card form img.captcha,
+.content-card form p img.captcha,
+.content-card form img[alt="captcha"] {
+    display: inline-block;
+    align-self: flex-start;
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    border: 1px solid #cfd7df;
+    border-radius: 4px;
+    background-color: #ffffff;
+    padding: 4px;
+}
+
 @media (max-width: 768px) {
     .container {
         width: 94%;

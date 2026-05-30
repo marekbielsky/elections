@@ -1,5 +1,5 @@
 from django import forms
-from captcha.fields import CaptchaField
+from captcha.fields import CaptchaField, CaptchaTextInput
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.utils import timezone
@@ -17,10 +17,16 @@ from .models import (
     VotingEligibility,
 )
 from .services import ElectionLifecycleService
+class NativeSizeCaptchaTextInput(CaptchaTextInput):
+    template_name = "elections/widgets/captcha_native.html"
+
 
 class UserRegistrationForm(UserCreationForm):
     email = forms.EmailField(required=True, label="E-mail")
-    captcha = CaptchaField(label="Przepisz kod z obrazka")
+    captcha = CaptchaField(
+        label="Przepisz kod z obrazka",
+        widget=NativeSizeCaptchaTextInput(),
+    )
     error_messages = {
         "password_mismatch": "Podane hasła nie są identyczne.",
     }
