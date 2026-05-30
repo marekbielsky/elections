@@ -1,4 +1,5 @@
 from django import forms
+from captcha.fields import CaptchaField
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.utils import timezone
@@ -19,6 +20,7 @@ from .services import ElectionLifecycleService
 
 class UserRegistrationForm(UserCreationForm):
     email = forms.EmailField(required=True, label="E-mail")
+    captcha = CaptchaField(label="Przepisz kod z obrazka")
     error_messages = {
         "password_mismatch": "Podane hasła nie są identyczne.",
     }
@@ -33,6 +35,7 @@ class UserRegistrationForm(UserCreationForm):
         self.fields["email"].label = "E-mail"
         self.fields["password1"].label = "Hasło"
         self.fields["password2"].label = "Powtórz hasło"
+        self.fields["captcha"].help_text = "Wpisz znaki widoczne na obrazku."
 
 
 class UserLoginForm(AuthenticationForm):

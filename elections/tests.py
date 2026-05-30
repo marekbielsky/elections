@@ -1,4 +1,5 @@
 from datetime import timedelta
+from captcha.models import CaptchaStore
 from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -306,7 +307,16 @@ class AdminRoleMvpRoutesTests(TestCase):
         self.assertContains(response, "Panel administracyjny")
 
 class AuthenticationFlowTests(TestCase):
+    @staticmethod
+    def _captcha_payload():
+        captcha_key = CaptchaStore.generate_key()
+        captcha = CaptchaStore.objects.get(hashkey=captcha_key)
+        return {
+            "captcha_0": captcha_key,
+            "captcha_1": captcha.response,
+        }
     def test_register_creates_user_with_default_role_and_logs_in(self):
+        captcha_payload = self._captcha_payload()
         response = self.client.post(
             reverse("register"),
             {
@@ -314,6 +324,7 @@ class AuthenticationFlowTests(TestCase):
                 "email": "new_auth_user@example.com",
                 "password1": "StrongPass123!",
                 "password2": "StrongPass123!",
+                **captcha_payload,
             },
         )
         self.assertEqual(response.status_code, 302)
