@@ -2,7 +2,6 @@ from django import forms
 from captcha.fields import CaptchaField, CaptchaTextInput
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
-from django.db.models import Q
 from django.utils import timezone
 
 from .models import (
@@ -250,11 +249,8 @@ class CastVoteForm(forms.Form):
                     schedule__end_at__gte=now,
                 )
                 .filter(
-                    Q(
-                        eligibilities__person=person,
-                        eligibilities__eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
-                    )
-                    | Q(eligibilities__isnull=True)
+                    eligibilities__person=person,
+                    eligibilities__eligibility_status=VotingEligibility.EligibilityStatus.GRANTED,
                 )
                 .distinct()
                 .order_by("name")

@@ -335,9 +335,6 @@ class VotingService:
 
     @staticmethod
     def _ensure_eligibility(*, election: Election, person) -> None:
-        has_any_eligibilities = VotingEligibility.objects.filter(election=election).exists()
-        if not has_any_eligibilities:
-            return
         is_eligible = VotingEligibility.objects.filter(
             election=election,
             person=person,
@@ -460,13 +457,167 @@ class ElectionResultService:
 
 class DatabaseProcedureService:
     @staticmethod
+    def _recompute_results_for_elections(*, cursor, election_ids: list[int], generated_by_user_id=None) -> None:
+        for election_id in election_ids:
+            cursor.execute(
+                """
+                SELECT COUNT(DISTINCT person_id)
+                FROM elections_votingeligibility
+                WHERE election_id = %s
+                  AND eligibility_status = 'GRANTED'
+                """,
+                [election_id],
+            )
+            eligible_voters_count = cursor.fetchone()[0] or 0
+
+            cursor.execute(
+                """
+                SELECT COUNT(DISTINCT person_id)
+                FROM elections_votingparticipation
+                WHERE election_id = %s
+                  AND has_voted = 1
+                """,
+                [election_id],
+            )
+            voters_count = cursor.fetchone()[0] or 0
+
+            turnout_percent = ElectionResultService._calculate_percent(
+                numerator=voters_count,
+                denominator=eligible_voters_count,
+            )
+
+            cursor.execute(
+                """
+                INSERT INTO elections_electionresult (
+                    election_id,
+                    calculated_at,
+                    eligible_voters_count,
+                    voters_count,
+                    turnout_percent,
+                    is_final,
+                    generated_by_user_id
+                )
+                VALUES (%s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
+                ON CONFLICT(election_id) DO UPDATE SET
+                    calculated_at = CURRENT_TIMESTAMP,
+                    eligible_voters_count = excluded.eligible_voters_count,
+                    voters_count = excluded.voters_count,
+                    turnout_percent = excluded.turnout_percent,
+                    is_final = excluded.is_final,
+                    generated_by_user_id = excluded.generated_by_user_id
+                """,
+                [election_id, eligible_voters_count, voters_count, turnout_percent, True, generated_by_user_id],
+            )
+
+            cursor.execute(
+                "SELECT id FROM elections_electionresult WHERE election_id = %s",
+                [election_id],
+            )
+            election_result_id = cursor.fetchone()[0]
+
+            cursor.execute(
+                """
+                SELECT
+                    ec.id AS election_candidate_id,
+                    ec.candidate_number,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN b.election_id = %s
+                                 AND b.ballot_status = 'SUBMITTED'
+                                THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS votes_count
+                FROM elections_electioncandidate ec
+                LEFT JOIN elections_ballotselection bs
+                    ON bs.election_candidate_id = ec.id
+                LEFT JOIN elections_ballot b
+                    ON b.id = bs.ballot_id
+                WHERE ec.election_id = %s
+                  AND ec.is_approved = 1
+                GROUP BY ec.id, ec.candidate_number
+                ORDER BY votes_count DESC, ec.candidate_number ASC, ec.id ASC
+                """,
+                [election_id, election_id],
+            )
+            candidate_rows = cursor.fetchall()
+            total_votes_cast = sum((row[2] or 0) for row in candidate_rows)
+
+            cursor.execute(
+                "DELETE FROM elections_electionresultitem WHERE election_result_id = %s",
+                [election_result_id],
+            )
+            for index, row in enumerate(candidate_rows):
+                candidate_id = row[0]
+                votes_count = row[2] or 0
+                votes_percent = ElectionResultService._calculate_percent(
+                    numerator=votes_count,
+                    denominator=total_votes_cast,
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO elections_electionresultitem (
+                        election_result_id,
+                        election_candidate_id,
+                        votes_count,
+                        votes_percent,
+                        ranking_position
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    [election_result_id, candidate_id, votes_count, votes_percent, index + 1],
+                )
+    @staticmethod
     def refresh_overdue_elections_and_fetch_turnout(*, generated_by_user=None, at_time=None) -> dict:
         with transaction.atomic():
-            closed_elections_count = ElectionLifecycleService.close_overdue_elections(
-                at_time=at_time,
-                generated_by_user=generated_by_user,
-            )
+            now = at_time or timezone.now()
+            generated_by_user_id = getattr(generated_by_user, "id", None)
             with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT e.id
+                    FROM elections_election e
+                    JOIN elections_electionschedule s ON s.election_id = e.id
+                    JOIN elections_electionstatus st ON st.id = e.election_status_id
+                    WHERE st.code IN ('PUBLISHED', 'IN_PROGRESS')
+                      AND s.end_at <= %s
+                    ORDER BY e.id
+                    """,
+                    [now],
+                )
+                overdue_election_ids = [row[0] for row in cursor.fetchall()]
+                closed_elections_count = len(overdue_election_ids)
+
+                if overdue_election_ids:
+                    cursor.execute(
+                        "SELECT id FROM elections_electionstatus WHERE code = 'CLOSED' LIMIT 1"
+                    )
+                    closed_status_row = cursor.fetchone()
+                    if closed_status_row is None:
+                        raise ElectionLifecycleError(
+                            "Wymagany status wyborów 'CLOSED' nie jest skonfigurowany."
+                        )
+                    closed_status_id = closed_status_row[0]
+
+                    placeholders = ", ".join(["%s"] * len(overdue_election_ids))
+                    cursor.execute(
+                        f"""
+                        UPDATE elections_election
+                        SET election_status_id = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id IN ({placeholders})
+                        """,
+                        [closed_status_id, *overdue_election_ids],
+                    )
+
+                    DatabaseProcedureService._recompute_results_for_elections(
+                        cursor=cursor,
+                        election_ids=overdue_election_ids,
+                        generated_by_user_id=generated_by_user_id,
+                    )
                 cursor.execute(
                     """
                     SELECT election_type_code, election_type_name, elections_count, avg_turnout_percent
@@ -491,18 +642,24 @@ class DatabaseProcedureService:
     @staticmethod
     def recompute_closed_results_and_fetch_winners(*, generated_by_user=None) -> dict:
         with transaction.atomic():
-            closed_elections = Election.objects.select_related("election_status").filter(
-                election_status__code="CLOSED"
-            )
-            recomputed_results_count = 0
-            for election in closed_elections:
-                ElectionResultService.generate_results(
-                    election=election,
-                    generated_by_user=generated_by_user,
-                    is_final=True,
-                )
-                recomputed_results_count += 1
+            generated_by_user_id = getattr(generated_by_user, "id", None)
             with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT e.id
+                    FROM elections_election e
+                    JOIN elections_electionstatus st ON st.id = e.election_status_id
+                    WHERE st.code = 'CLOSED'
+                    ORDER BY e.id
+                    """
+                )
+                closed_election_ids = [row[0] for row in cursor.fetchall()]
+                DatabaseProcedureService._recompute_results_for_elections(
+                    cursor=cursor,
+                    election_ids=closed_election_ids,
+                    generated_by_user_id=generated_by_user_id,
+                )
+                recomputed_results_count = len(closed_election_ids)
                 cursor.execute(
                     """
                     SELECT election_id, election_name, winner_name, winner_votes
@@ -527,18 +684,30 @@ class DatabaseFunctionService:
     @staticmethod
     def get_top_turnout_snapshot(*, limit: int = 5) -> dict:
         safe_limit = max(1, min(limit, 50))
-        rows = (
-            ElectionResult.objects.select_related("election")
-            .order_by("-turnout_percent", "-voters_count", "election_id")[:safe_limit]
-        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    er.election_id,
+                    e.name,
+                    er.turnout_percent,
+                    er.voters_count
+                FROM elections_electionresult er
+                JOIN elections_election e ON e.id = er.election_id
+                ORDER BY er.turnout_percent DESC, er.voters_count DESC, er.election_id ASC
+                LIMIT %s
+                """,
+                [safe_limit],
+            )
+            rows = cursor.fetchall()
         return {
             "limit": safe_limit,
             "rows": [
                 {
-                    "election_id": row.election_id,
-                    "election_name": row.election.name,
-                    "turnout_percent": str(row.turnout_percent),
-                    "voters_count": row.voters_count,
+                    "election_id": row[0],
+                    "election_name": row[1],
+                    "turnout_percent": str(row[2]),
+                    "voters_count": row[3],
                 }
                 for row in rows
             ],
@@ -546,17 +715,24 @@ class DatabaseFunctionService:
 
     @staticmethod
     def get_election_status_distribution() -> dict:
-        distribution = (
-            Election.objects.select_related("election_status")
-            .values("election_status__code")
-            .annotate(elections_count=Count("id"))
-            .order_by("election_status__code")
-        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    st.code AS status_code,
+                    COUNT(e.id) AS elections_count
+                FROM elections_election e
+                JOIN elections_electionstatus st ON st.id = e.election_status_id
+                GROUP BY st.code
+                ORDER BY st.code
+                """
+            )
+            distribution = cursor.fetchall()
         return {
             "rows": [
                 {
-                    "status_code": row["election_status__code"],
-                    "elections_count": row["elections_count"],
+                    "status_code": row[0],
+                    "elections_count": row[1],
                 }
                 for row in distribution
             ]
@@ -564,16 +740,20 @@ class DatabaseFunctionService:
 
     @staticmethod
     def get_candidate_approval_summary() -> dict:
-        total_candidates = ElectionCandidate.objects.count()
-        approved_candidates = ElectionCandidate.objects.filter(is_approved=True).count()
-        pending_candidates = total_candidates - approved_candidates
-        approval_percent = (
-            Decimal("0.00")
-            if total_candidates == 0
-            else (Decimal(approved_candidates) * Decimal("100") / Decimal(total_candidates)).quantize(
-                Decimal("0.01"),
-                rounding=ROUND_HALF_UP,
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_candidates,
+                    COALESCE(SUM(CASE WHEN is_approved = 1 THEN 1 ELSE 0 END), 0) AS approved_candidates
+                FROM elections_electioncandidate
+                """
             )
+            total_candidates, approved_candidates = cursor.fetchone()
+        pending_candidates = total_candidates - approved_candidates
+        approval_percent = ElectionResultService._calculate_percent(
+            numerator=approved_candidates,
+            denominator=total_candidates,
         )
         return {
             "total_candidates": total_candidates,
