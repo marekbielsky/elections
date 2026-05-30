@@ -897,6 +897,46 @@ class AdminWorkflowTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_admin_can_toggle_candidate_approval_from_candidates_list(self):
+        person = Person.objects.create(
+            user=self.normal_user,
+            first_name="Test",
+            last_name="Kandydat",
+            student_or_employee_no="WFLOW-CAND-001",
+        )
+        candidate = ElectionCandidate.objects.create(
+            election=self.election,
+            person=person,
+            candidate_number=99,
+            is_approved=False,
+        )
+        self.client.force_login(self.admin_user)
+        approve_response = self.client.post(
+            reverse("candidate_approval_toggle", kwargs={"candidate_id": candidate.id}),
+            {"approve": "1", "election_id": str(self.election.id)},
+        )
+        self.assertEqual(approve_response.status_code, 302)
+        self.assertEqual(
+            approve_response["Location"],
+            f"{reverse('candidates_list')}?election_id={self.election.id}",
+        )
+        candidate.refresh_from_db()
+        self.assertTrue(candidate.is_approved)
+        self.assertIsNotNone(candidate.approved_at)
+
+        revoke_response = self.client.post(
+            reverse("candidate_approval_toggle", kwargs={"candidate_id": candidate.id}),
+            {"approve": "0", "election_id": str(self.election.id)},
+        )
+        self.assertEqual(revoke_response.status_code, 302)
+        self.assertEqual(
+            revoke_response["Location"],
+            f"{reverse('candidates_list')}?election_id={self.election.id}",
+        )
+        candidate.refresh_from_db()
+        self.assertFalse(candidate.is_approved)
+        self.assertIsNone(candidate.approved_at)
+
 
 class ElectionServicesTests(TestCase):
     @classmethod

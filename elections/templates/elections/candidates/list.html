@@ -1,5 +1,5 @@
 {% extends 'elections/base.html' %}
-{% load static %}
+{% load static rbac_tags %}
 
 {% block title %}Kandydaci{% endblock %}
 
@@ -32,6 +32,9 @@
                     <th>Wybory</th>
                     <th>Zatwierdzony</th>
                     <th>Opis kampanii</th>
+                    {% if request|has_app_permission:"candidate.create" %}
+                        <th>Akcja</th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -54,6 +57,21 @@
                                 Brak opisu
                             {% endif %}
                         </td>
+                        {% if request|has_app_permission:"candidate.create" %}
+                            <td class="candidate-action-cell">
+                                <form method="post" action="{% url 'candidate_approval_toggle' candidate.id %}" class="candidate-action-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="election_id" value="{{ selected_election_id }}">
+                                    {% if candidate.is_approved %}
+                                        <input type="hidden" name="approve" value="0">
+                                        <button type="submit">Cofnij</button>
+                                    {% else %}
+                                        <input type="hidden" name="approve" value="1">
+                                        <button type="submit">Zatwierdź</button>
+                                    {% endif %}
+                                </form>
+                            </td>
+                        {% endif %}
                     </tr>
                 {% endfor %}
             </tbody>

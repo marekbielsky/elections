@@ -25,6 +25,11 @@ urlpatterns = [
     path("logout/", views.logout_view, name="logout"),
     path("candidates/", views.candidates_list_view, name="candidates_list"),
     path("candidates/create/", views.candidate_create_view, name="candidate_create"),
+    path(
+        "candidates/<int:candidate_id>/approval/",
+        views.candidate_approval_toggle_view,
+        name="candidate_approval_toggle",
+    ),
     path("committees/", views.committees_list_view, name="committees_list"),
     path("elections/", views.elections_list_view, name="elections_list"),
     path("calendar/", views.calendar_view, name="calendar"),

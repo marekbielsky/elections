@@ -356,6 +356,17 @@ a:hover {
     padding: 4px;
 }
 
+.candidate-action-cell {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.candidate-action-form {
+    margin-top: 0 !important;
+    display: flex;
+    justify-content: center;
+}
+
 @media (max-width: 768px) {
     .container {
         width: 94%;

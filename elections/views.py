@@ -1,4 +1,5 @@
 import secrets
+from django.urls import reverse
 from django.db.models import Prefetch
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -135,6 +136,33 @@ def candidates_list_view(request):
         "elections": elections,
     }
     return render(request, "elections/candidates/list.html", context)
+
+
+@login_required
+@require_permission(PermissionCodes.CANDIDATE_CREATE)
+def candidate_approval_toggle_view(request, candidate_id: int):
+    if request.method != "POST":
+        return redirect("candidates_list")
+    candidate = get_object_or_404(ElectionCandidate, id=candidate_id)
+    should_approve = request.POST.get("approve") == "1"
+    candidate.is_approved = should_approve
+    candidate.approved_at = timezone.now() if should_approve else None
+    candidate.save(update_fields=["is_approved", "approved_at"])
+    if should_approve:
+        messages.success(
+            request,
+            f"Zatwierdzono kandydata: {candidate.person.first_name} {candidate.person.last_name}.",
+        )
+    else:
+        messages.success(
+            request,
+            f"Cofnięto zatwierdzenie kandydata: {candidate.person.first_name} {candidate.person.last_name}.",
+        )
+    election_id = request.POST.get("election_id", "").strip()
+    redirect_url = reverse("candidates_list")
+    if election_id:
+        return redirect(f"{redirect_url}?election_id={election_id}")
+    return redirect(redirect_url)
 
 
 @login_required
