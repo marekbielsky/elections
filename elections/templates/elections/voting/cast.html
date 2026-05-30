@@ -20,4 +20,22 @@
         {{ form.as_p }}
         <button type="submit">Wyślij głos</button>
     </form>
+    <script>
+        (function () {
+            const electionSelect = document.getElementById("id_election");
+            if (!electionSelect) {
+                return;
+            }
+            electionSelect.addEventListener("change", function () {
+                const selectedElection = electionSelect.value;
+                const url = new URL(window.location.href);
+                if (selectedElection) {
+                    url.searchParams.set("election", selectedElection);
+                } else {
+                    url.searchParams.delete("election");
+                }
+                window.location.assign(url.toString());
+            });
+        })();
+    </script>
 {% endblock %}

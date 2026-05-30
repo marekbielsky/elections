@@ -1,4 +1,6 @@
 import secrets
+from django.db.models import Prefetch
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import get_user_model, login as auth_login, logout as auth_logout
 from django.core.mail import send_mail
@@ -20,6 +22,7 @@ from .models import (
     Election,
     ElectionCandidate,
     ElectionResult,
+    ElectionResultItem,
     ElectionType,
     OrganizationalUnit,
     Permission,
@@ -271,10 +274,26 @@ def calendar_view(request):
 @login_required
 def results_list_view(request):
     ElectionLifecycleService.close_overdue_elections()
-    results = ElectionResult.objects.select_related(
+    results_queryset = ElectionResult.objects.select_related(
         "election",
         "generated_by_user",
-    ).all()
+    ).prefetch_related(
+        Prefetch(
+            "items",
+            queryset=ElectionResultItem.objects.select_related("election_candidate__person").order_by(
+                "ranking_position"
+            ),
+        )
+    )
+    results = []
+    for result in results_queryset:
+        winner = next((item for item in result.items.all() if item.ranking_position == 1), None)
+        if winner is None or winner.votes_count == 0:
+            result.winner_name = "-"
+        else:
+            person = winner.election_candidate.person
+            result.winner_name = f"{person.first_name} {person.last_name}"
+        results.append(result)
 
     context = {
         "results": results,
@@ -285,6 +304,8 @@ def results_list_view(request):
 @login_required
 @require_permission(PermissionCodes.VOTING_CAST)
 def vote_cast_view(request):
+    ElectionLifecycleService.start_due_elections()
+    ElectionLifecycleService.close_overdue_elections()
     person = None
     profile_error_message = None
     if request.user.is_authenticated:
@@ -325,7 +346,9 @@ def vote_cast_view(request):
                 except VotingError as exc:
                     form.add_error(None, str(exc))
     else:
-        form = CastVoteForm(person=person)
+        selected_election_id = request.GET.get("election")
+        initial = {"election": selected_election_id} if selected_election_id else None
+        form = CastVoteForm(person=person, initial=initial)
 
     context = {
         "form": form,
@@ -575,6 +598,7 @@ def admin_election_lifecycle_action_view(request):
     if not form.is_valid():
         if wants_json_response(request):
             return JsonResponse({"errors": form.errors}, status=400)
+        messages.error(request, "Nie udało się wykonać akcji: nieprawidłowe dane formularza.")
         return redirect("admin_draft_elections")
 
     election = get_object_or_404(
@@ -582,7 +606,6 @@ def admin_election_lifecycle_action_view(request):
         id=form.cleaned_data["election_id"],
     )
     action = form.cleaned_data["action"]
-    force_close = form.cleaned_data.get("force_close", False)
 
     try:
         if action == "publish":
@@ -592,17 +615,29 @@ def admin_election_lifecycle_action_view(request):
         elif action == "close":
             election = ElectionLifecycleService.close_election(
                 election,
-                force=force_close,
+                force=True,
                 generated_by_user=request.user if request.user.is_authenticated else None,
             )
         else:
             if wants_json_response(request):
                 return JsonResponse({"detail": "Unsupported action."}, status=400)
+            messages.error(request, "Nieobsługiwana akcja cyklu życia wyborów.")
             return redirect("admin_draft_elections")
     except ElectionLifecycleError as exc:
         if wants_json_response(request):
             return JsonResponse({"detail": str(exc)}, status=400)
+        messages.error(request, str(exc))
         return redirect("admin_draft_elections")
+
+    action_labels = {
+        "publish": "Opublikowano",
+        "start": "Rozpoczęto",
+        "close": "Zamknięto",
+    }
+    messages.success(
+        request,
+        f"{action_labels.get(action, 'Wykonano akcję dla')} wyborów: {election.name}.",
+    )
 
     if wants_json_response(request):
         return JsonResponse(

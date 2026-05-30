@@ -879,7 +879,7 @@ class AdminWorkflowTests(TestCase):
 
         close_response = self.client.post(
             reverse("admin_election_lifecycle_action"),
-            {"election_id": self.election.id, "action": "close", "force_close": "on"},
+            {"election_id": self.election.id, "action": "close"},
             HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
             HTTP_ACCEPT="application/json",
         )

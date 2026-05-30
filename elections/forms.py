@@ -207,10 +207,6 @@ class ElectionLifecycleActionForm(forms.Form):
         ),
         label="Akcja",
     )
-    force_close = forms.BooleanField(
-        required=False,
-        label="Wymuś zamknięcie (przed końcem harmonogramu)",
-    )
 
 
 class CastVoteForm(forms.Form):
@@ -255,6 +251,10 @@ class CastVoteForm(forms.Form):
             initial_election = self.initial.get("election") if self.initial else None
             if initial_election is not None:
                 selected_election_id = getattr(initial_election, "id", initial_election)
+            elif self.fields["election"].queryset.exists():
+                default_election_id = self.fields["election"].queryset.values_list("id", flat=True).first()
+                self.fields["election"].initial = default_election_id
+                selected_election_id = default_election_id
         self.fields["candidate_ids"].choices = self._candidate_choices(selected_election_id)
 
     @staticmethod

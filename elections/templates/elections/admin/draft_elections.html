@@ -60,10 +60,6 @@
                                     <option value="start" {% if election.status == 'PUBLISHED' %}selected{% endif %}>Rozpocznij</option>
                                     <option value="close" {% if election.status == 'IN_PROGRESS' %}selected{% endif %}>Zamknij</option>
                                 </select>
-                                <label>
-                                    <input type="checkbox" name="force_close" value="true">
-                                    Wymuś zamknięcie
-                                </label>
                                 <button type="submit">Wykonaj</button>
                             </form>
                         </td>

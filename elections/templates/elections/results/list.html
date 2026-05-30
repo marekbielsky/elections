@@ -27,13 +27,7 @@
                         <td>{{ result.eligible_voters_count }}</td>
                         <td>{{ result.voters_count }}</td>
                         <td>{{ result.turnout_percent }}</td>
-                        <td>
-                            {% if result.is_final %}
-                                Tak
-                            {% else %}
-                                Nie
-                            {% endif %}
-                        </td>
+                        <td>{{ result.winner_name }}</td>
                         <td>{{ result.calculated_at }}</td>
                     </tr>
                 {% endfor %}
