@@ -1,147 +1,102 @@
-# Elections Django App
-## Run with Docker
-1. Build and start:
-docker compose up --build
-2. App URL:
-http://127.0.0.1:8000
-3. Stop containers:
+# System wyborczy (Django)
+Aplikacja webowa do obsługi procesu wyborczego: role i uprawnienia (RBAC), zarządzanie wyborami, kandydatami, kalendarzem, wynikami i panelem administracyjnym.
+
+## Najważniejsze funkcje
+- Rejestracja, logowanie i wylogowanie użytkowników.
+- RBAC (role: `ADMIN`, `USER`, `AUDITOR`) z kontrolą dostępu i ukrywaniem niedozwolonych zakładek.
+- Zarządzanie wyborami, kandydatami, komitetami i cyklem życia wyborów.
+- Kalendarz wyborów z filtrami i pickerem dat.
+- Wyniki oraz API analityczne (m.in. top frekwencja, trendy historyczne).
+- Generowanie dokumentów PDF z wynikami.
+
+## Wymagania
+- Docker + Docker Compose
+
+## Uruchomienie lokalne (Docker)
+```bash
+docker compose up -d --build
+```
+
+Interfejsy:
+- Aplikacja: `http://localhost:8000`
+- GUI bazy SQLite (`sqlite-web`): `http://localhost:8081`
+
+Zatrzymanie:
+```bash
 docker compose down
-## Useful commands
-- Run migrations manually:
-docker compose run --rm web python manage.py migrate
-- Run tests:
-docker compose run --rm web python manage.py test elections
-- Seed local demo data manually (optional):
+```
+
+## Baza danych i podgląd rekordów
+Projekt używa SQLite (plik w wolumenie: `/data/db.sqlite3`).
+
+Szybki podgląd przez CLI:
+```bash
+docker compose exec web sqlite3 /data/db.sqlite3
+```
+
+Przykładowe komendy SQL:
+```sql
+.tables
+SELECT * FROM elections_election LIMIT 20;
+```
+
+## Seed danych (bootstrap)
+Komenda:
+- prod-safe: `python manage.py bootstrap_data --env prod`
+- lokalne dane demo: `python manage.py bootstrap_data --env local --with-demo`
+
+W Docker:
+```bash
 docker compose run --rm web python manage.py bootstrap_data --env local --with-demo
-
-## Data bootstrap and environment setup
-### Management command: `bootstrap_data`
-The project includes `python manage.py bootstrap_data` to seed reference dictionaries and optional demo data.
-
-Available modes:
-- Production-safe reference data only:
-  - `python manage.py bootstrap_data --env prod`
-- Local reference + demo records:
-  - `python manage.py bootstrap_data --env local --with-demo`
-
-Environment variables for demo credentials:
-- `BOOTSTRAP_ADMIN_PASSWORD` (default: `admin12345`)
-- `BOOTSTRAP_DEMO_PASSWORD` (default: `demo12345`)
-
-The command is idempotent (safe to run multiple times).
-
-### Setup scripts
-Two helper scripts were added in `scripts/`:
-- `scripts/setup-local.sh`
-  - runs migrations
-  - seeds local demo data
-  - runs Django checks
-- `scripts/setup-prod.sh`
-  - runs migrations
-  - seeds production-safe reference data
-  - runs Django checks
-
-Run examples:
-
-```bash
-./scripts/setup-local.sh
-./scripts/setup-prod.sh
 ```
 
-If needed, override Python binary:
+Skrypty pomocnicze:
+- `scripts/setup-local.sh` – migrate + lokalny seed + check
+- `scripts/setup-prod.sh` – migrate + prod seed + check
 
+Domyślne hasła seedera (można nadpisać env):
+- `BOOTSTRAP_ADMIN_PASSWORD` (domyślnie `admin12345`)
+- `BOOTSTRAP_DEMO_PASSWORD` (domyślnie `demo12345`)
+
+## Testy i kontrola jakości
 ```bash
-PYTHON_BIN=/path/to/python3 ./scripts/setup-local.sh
+docker compose run --rm web python manage.py check
+docker compose run --rm web python manage.py test elections
 ```
 
-## CI for pull requests
-GitHub Actions workflow is configured in:
-- `.github/workflows/pr-ci.yml`
+## Diagram ERD
+Pełny diagram ERD modeli domenowych:
+- `docs/ERD_FULL.md`
 
-On each PR to `main`, CI runs:
-- linting (`ruff`)
-- `python manage.py check`
-- `python manage.py test elections`
-
-## Production deployment (Docker Compose)
-### Deploy in production with `docker-compose.prod.yml`
-1. Clone the repository.
-2. Create runtime env file from template.
-3. Set production values (`DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, etc.).
-4. Build and start containers.
-5. Verify app health.
-6. Manage updates safely.
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and set at least:
-- `DJANGO_SECRET_KEY` (strong random value)
-- `DJANGO_DEBUG=False`
-- `DJANGO_ALLOWED_HOSTS=your-domain.com,www.your-domain.com`
-- `APP_PORT=8000` (or preferred external port)
-- `BOOTSTRAP_WITH_DEMO=0` (keep demo seeding disabled in production)
+## Produkcja (docker-compose.prod.yml)
+1. Utwórz `.env` na bazie `.env.example`.
+2. Ustaw co najmniej:
+   - `DJANGO_SECRET_KEY`
+   - `DJANGO_DEBUG=False`
+   - `DJANGO_ALLOWED_HOSTS`
+   - `APP_PORT`
+3. Uruchom:
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Check status and logs:
-
+Przydatne:
 ```bash
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f web
 ```
 
-Run one-off commands:
+## Deploy na Render
+Repo zawiera `render.yaml` (Blueprint):
+- build: instalacja zależności + `collectstatic`
+- start: `migrate` + `bootstrap_data --env prod` + `gunicorn`
+- trwały dysk dla SQLite: `/var/data`
 
-```bash
-docker compose -f docker-compose.prod.yml run --rm web python manage.py migrate
-docker compose -f docker-compose.prod.yml run --rm web python manage.py check
-docker compose -f docker-compose.prod.yml run --rm web python manage.py test elections
-```
-
-Stop or restart:
-
-```bash
-docker compose -f docker-compose.prod.yml down
-docker compose -f docker-compose.prod.yml up -d
-```
-
-### Notes
-- Persistent SQLite data is stored in Docker volume `sqlite_data`.
-- Keep `.env` out of version control.
-- For public internet exposure, put a reverse proxy (Nginx/Caddy) with TLS in front.
-- Production startup seeds only reference data (`bootstrap_data --env prod`) and serves app via `gunicorn`.
-
-## Deployment on Render (via `render.yaml`)
-This repository includes a Render Blueprint config in `render.yaml`.
-
-### One-time setup
-1. Push the repository to GitHub.
-2. In Render, choose **New +** → **Blueprint**.
-3. Select the GitHub repository.
-4. Confirm creation of the `elections-web` service from `render.yaml`.
-
-### What `render.yaml` configures
-- Build command:
-  - `pip install -r requirements.txt && python manage.py collectstatic --noinput`
-- Start command:
-  - `python manage.py migrate && python manage.py bootstrap_data --env prod && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT`
-- Environment variables:
-  - `DJANGO_SECRET_KEY` (auto-generated by Render)
-  - `DJANGO_DEBUG=False`
-  - `DJANGO_ALLOWED_HOSTS=.onrender.com`
-  - `DJANGO_CSRF_TRUSTED_ORIGINS=https://*.onrender.com`
-  - `SQLITE_DB_PATH=/var/data/db.sqlite3`
-- Persistent disk:
-  - mounted at `/var/data` as `sqlite-data` for SQLite durability across deploys/restarts.
-
-### Deploy/update flow
-1. Push changes to the connected GitHub branch.
-2. Render auto-deploys the new revision.
-3. Open service logs in Render and verify startup:
-   - migrations completed,
-   - Gunicorn started,
-   - app responds on the Render URL.
+## Kluczowe ścieżki w projekcie
+- Modele: `elections/models.py`
+- Widoki: `elections/views.py`, `elections/api_views.py`
+- Routing: `elections/urls.py`
+- RBAC: `elections/rbac.py`
+- Szablony: `elections/templates/elections/`
+- Style: `elections/static/elections/css/style.css`

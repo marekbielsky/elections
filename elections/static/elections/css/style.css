@@ -9,6 +9,9 @@ body {
     color: #1b1b1b;
     font-size: 16px;
     line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
 }
 
 .top-accent {
@@ -72,13 +75,15 @@ body {
     display: flex;
     flex-wrap: wrap;
     gap: 0;
+    align-items: stretch;
 }
 
 .main-nav a {
     color: #ffffff;
     text-decoration: none;
     padding: 14px 18px;
-    display: inline-block;
+    display: flex;
+    align-items: center;
     border-right: 1px solid rgba(255, 255, 255, 0.15);
     font-weight: 700;
     font-size: 15px;
@@ -92,12 +97,15 @@ body {
     color: #ffffff;
     padding: 14px 18px;
     font-weight: 700;
-    font-size: 14px;
+    font-size: 15px;
     border-right: 1px solid rgba(255, 255, 255, 0.15);
+    display: flex;
+    align-items: center;
 }
 
 .main-nav .nav-logout-form {
     margin: 0;
+    display: flex;
 }
 
 .main-nav .nav-logout-form button {
@@ -109,6 +117,8 @@ body {
     font-weight: 700;
     font-size: 15px;
     cursor: pointer;
+    display: flex;
+    align-items: center;
 }
 
 .main-nav .nav-logout-form button:hover {
@@ -117,6 +127,7 @@ body {
 
 .page-wrapper {
     padding: 32px 0;
+    flex: 1;
 }
 
 .content-card {
@@ -139,10 +150,15 @@ h2,
 h3 {
     color: #003366;
     margin-top: 0;
+    margin-bottom: 12px;
 }
 
 p {
     margin-top: 0;
+}
+
+label {
+    font-size: 15px;
 }
 
 ul {
@@ -191,8 +207,27 @@ a:hover {
     font-size: 14px;
 }
 
+.site-footer .container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+}
+
+.site-footer p {
+    margin: 0;
+}
+
 .content-card form {
     margin-top: 24px;
+}
+
+.content-card > * {
+    margin-bottom: 0;
+}
+
+.content-card > * + * {
+    margin-top: 20px;
 }
 .content-card .app-form {
     background-color: #f8fbff;
