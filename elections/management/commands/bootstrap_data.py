@@ -13,7 +13,10 @@ from elections.models import (
     ElectionStatus,
     ElectionType,
     OrganizationalUnit,
+    Permission,
     Person,
+    Role,
+    RolePermission,
     UserRole,
     VotingEligibility,
     VotingRule,
@@ -53,6 +56,62 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("Zseedowano bezpieczne dane referencyjne dla produkcji."))
 
     def _seed_reference_data(self):
+        role_definitions = [
+            (UserRole.Role.ADMIN, "Administrator", "Rola administracyjna z pełnym dostępem."),
+            (UserRole.Role.USER, "Użytkownik", "Rola użytkownika końcowego."),
+            (UserRole.Role.AUDITOR, "Audytor", "Rola audytora z dostępem tylko do odczytu."),
+        ]
+        permission_definitions = [
+            ("election.read", "Podgląd wyborów", "elections"),
+            ("election.create", "Tworzenie wyborów", "elections"),
+            ("election.manage_state", "Zarządzanie statusem wyborów", "elections"),
+            ("election.draft.view", "Podgląd roboczych wyborów", "elections"),
+            ("candidate.read", "Podgląd kandydatów", "candidates"),
+            ("candidate.create", "Tworzenie kandydatów", "candidates"),
+            ("committee.read", "Podgląd komitetów", "committees"),
+            ("result.read", "Podgląd wyników", "results"),
+            ("voting.token.issue", "Wydawanie tokenów głosowania", "voting"),
+            ("voting.cast", "Oddawanie głosu", "voting"),
+            ("admin.panel.view", "Dostęp do panelu administracyjnego", "admin"),
+            ("admin.users.view", "Podgląd użytkowników", "admin"),
+            ("admin.role.assign", "Przypisywanie ról", "admin"),
+            ("admin.permission.assign", "Przypisywanie uprawnień", "admin"),
+            ("admin.election.lifecycle", "Zarządzanie cyklem życia wyborów", "admin"),
+        ]
+        role_permissions = {
+            UserRole.Role.ADMIN: {
+                "election.read",
+                "election.create",
+                "election.manage_state",
+                "election.draft.view",
+                "candidate.read",
+                "candidate.create",
+                "committee.read",
+                "result.read",
+                "voting.token.issue",
+                "voting.cast",
+                "admin.panel.view",
+                "admin.users.view",
+                "admin.role.assign",
+                "admin.permission.assign",
+                "admin.election.lifecycle",
+            },
+            UserRole.Role.USER: {
+                "election.read",
+                "candidate.read",
+                "committee.read",
+                "result.read",
+                "voting.cast",
+            },
+            UserRole.Role.AUDITOR: {
+                "election.read",
+                "candidate.read",
+                "committee.read",
+                "result.read",
+                "election.draft.view",
+                "admin.panel.view",
+            },
+        }
         election_types = [
             ("STUDENT_COUNCIL", "Samorząd studencki", "Wybory przedstawicieli samorządu studenckiego."),
             ("DEAN", "Dziekan", "Wybory na stanowisko dziekana."),
@@ -94,8 +153,28 @@ class Command(BaseCommand):
                 code=code,
                 defaults={"name": name, "description": description},
             )
+        for code, name, description in role_definitions:
+            Role.objects.update_or_create(
+                code=code,
+                defaults={"name": name, "description": description, "is_system": True},
+            )
+        for code, name, module in permission_definitions:
+            Permission.objects.update_or_create(
+                code=code,
+                defaults={"name": name, "module": module},
+            )
 
-        self.stdout.write(self.style.SUCCESS("Słowniki referencyjne zostały zseedowane."))
+        for role_code, permission_codes in role_permissions.items():
+            role = Role.objects.get(code=role_code)
+            role.role_permissions.exclude(permission__code__in=permission_codes).delete()
+            for permission_code in permission_codes:
+                permission = Permission.objects.get(code=permission_code)
+                RolePermission.objects.get_or_create(
+                    role=role,
+                    permission=permission,
+                )
+
+        self.stdout.write(self.style.SUCCESS("Słowniki referencyjne i RBAC minimum zostały zseedowane."))
 
     def _seed_local_demo_data(self):
         user_model = get_user_model()

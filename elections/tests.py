@@ -263,6 +263,7 @@ class AdminRoleMvpRoutesTests(TestCase):
         UserRole.objects.create(user=cls.normal_user, role=UserRole.Role.USER)
 
     def test_admin_route_is_forbidden_for_non_admin(self):
+        self.client.force_login(self.normal_user)
         response = self.client.get(
             reverse("admin_overview"),
             HTTP_X_USER_ROLE=UserRole.Role.USER,
@@ -272,22 +273,19 @@ class AdminRoleMvpRoutesTests(TestCase):
         self.assertEqual(response.json()["current_role"], UserRole.Role.USER)
 
     def test_admin_route_is_accessible_for_admin(self):
+        self.client.force_login(self.admin_user)
         response = self.client.get(
             reverse("admin_overview"),
-            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
             HTTP_ACCEPT="application/json",
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("summary", response.json())
-
-    def test_admin_route_accepts_role_header_for_mvp_without_auth(self):
+    def test_admin_route_requires_authentication(self):
         response = self.client.get(
             reverse("admin_users_roles"),
-            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
             HTTP_ACCEPT="application/json",
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("users", response.json())
+        self.assertEqual(response.status_code, 302)
 
     @override_settings(
         STORAGES={
@@ -300,9 +298,9 @@ class AdminRoleMvpRoutesTests(TestCase):
         }
     )
     def test_admin_route_renders_html_for_browser_requests(self):
+        self.client.force_login(self.admin_user)
         response = self.client.get(
             reverse("admin_overview"),
-            HTTP_X_USER_ROLE=UserRole.Role.ADMIN,
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Panel administracyjny")
@@ -376,6 +374,24 @@ class AuthenticationFlowTests(TestCase):
         self.assertNotContains(response, "Kandydaci")
         self.assertNotContains(response, "Wybory")
         self.assertNotContains(response, "Panel administracyjny")
+
+    @override_settings(
+        STORAGES={
+            "default": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        }
+    )
+    def test_anonymous_user_on_home_does_not_see_available_sections_container(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Konto użytkownika")
+        self.assertContains(response, "Zaloguj")
+        self.assertContains(response, "Zarejestruj")
+        self.assertNotContains(response, "Dostępne sekcje")
 
 class RBACNavigationVisibilityTests(TestCase):
     @override_settings(
@@ -767,6 +783,7 @@ class AdminWorkflowTests(TestCase):
         )
 
     def test_admin_can_assign_user_role(self):
+        self.client.force_login(self.admin_user)
         response = self.client.post(
             reverse("admin_user_role_assign"),
             {"user_id": self.normal_user.id, "role": UserRole.Role.AUDITOR},
@@ -778,6 +795,7 @@ class AdminWorkflowTests(TestCase):
         self.assertEqual(self.normal_user.role_profile.role, UserRole.Role.AUDITOR)
 
     def test_user_cannot_assign_user_role(self):
+        self.client.force_login(self.normal_user)
         response = self.client.post(
             reverse("admin_user_role_assign"),
             {"user_id": self.normal_user.id, "role": UserRole.Role.ADMIN},
@@ -787,6 +805,7 @@ class AdminWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_admin_can_grant_and_revoke_role_permission(self):
+        self.client.force_login(self.admin_user)
         grant_response = self.client.post(
             reverse("admin_role_permission_assign"),
             {"role_id": self.role_user.id, "permission_id": self.permission_assign_role.id, "grant": "on"},
@@ -816,6 +835,7 @@ class AdminWorkflowTests(TestCase):
         )
 
     def test_user_cannot_assign_role_permission(self):
+        self.client.force_login(self.normal_user)
         response = self.client.post(
             reverse("admin_role_permission_assign"),
             {"role_id": self.role_user.id, "permission_id": self.permission_assign_role.id, "grant": "on"},
@@ -825,6 +845,7 @@ class AdminWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_admin_can_execute_election_lifecycle_actions(self):
+        self.client.force_login(self.admin_user)
         publish_response = self.client.post(
             reverse("admin_election_lifecycle_action"),
             {"election_id": self.election.id, "action": "publish"},
@@ -856,6 +877,7 @@ class AdminWorkflowTests(TestCase):
         self.assertEqual(self.election.election_status.code, "CLOSED")
 
     def test_user_cannot_execute_election_lifecycle_actions(self):
+        self.client.force_login(self.normal_user)
         response = self.client.post(
             reverse("admin_election_lifecycle_action"),
             {"election_id": self.election.id, "action": "publish"},

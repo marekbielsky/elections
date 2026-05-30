@@ -1,4 +1,5 @@
 import secrets
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth import get_user_model, login as auth_login, logout as auth_logout
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -92,6 +93,7 @@ def home_view(request):
     return render(request, "elections/home.html")
 
 
+@login_required
 def candidates_list_view(request):
     elections = Election.objects.order_by("name")
     selected_election_id = request.GET.get("election_id", "").strip()
@@ -118,6 +120,7 @@ def candidates_list_view(request):
     return render(request, "elections/candidates/list.html", context)
 
 
+@login_required
 def committees_list_view(request):
     committees = OrganizationalUnit.objects.filter(is_active=True).all()
 
@@ -224,6 +227,7 @@ def _build_calendar_context(*, request, elections_queryset):
     }
 
 
+@login_required
 def elections_list_view(request):
     ElectionLifecycleService.close_overdue_elections()
     elections = Election.objects.select_related(
@@ -239,6 +243,7 @@ def elections_list_view(request):
     return render(request, "elections/elections/list.html", context)
 
 
+@login_required
 def calendar_view(request):
     elections = Election.objects.select_related(
         "election_type",
@@ -249,6 +254,7 @@ def calendar_view(request):
     context = _build_calendar_context(request=request, elections_queryset=elections)
     return render(request, "elections/calendar/index.html", context)
 
+@login_required
 def results_list_view(request):
     ElectionLifecycleService.close_overdue_elections()
     results = ElectionResult.objects.select_related(
@@ -262,6 +268,7 @@ def results_list_view(request):
     return render(request, "elections/results/list.html", context)
 
 
+@login_required
 @require_permission(PermissionCodes.VOTING_CAST)
 def vote_cast_view(request):
     person = None
@@ -314,6 +321,7 @@ def vote_cast_view(request):
     return render(request, "elections/voting/cast.html", context)
 
 
+@login_required
 @require_permission(PermissionCodes.ELECTION_CREATE)
 def election_create_view(request):
     if request.method == "POST":
@@ -340,6 +348,7 @@ def election_create_view(request):
     return render(request, "elections/elections/create.html", context)
 
 
+@login_required
 @require_permission(PermissionCodes.CANDIDATE_CREATE)
 def candidate_create_view(request):
     if request.method == "POST":
@@ -364,6 +373,7 @@ def candidate_create_view(request):
     return render(request, "elections/candidates/create.html", context)
 
 
+@login_required
 @require_permission(PermissionCodes.ADMIN_PANEL_VIEW)
 def admin_overview_view(request):
     user_model = get_user_model()
@@ -379,6 +389,7 @@ def admin_overview_view(request):
     return render(request, "elections/admin/overview.html", context)
 
 
+@login_required
 @require_permission(PermissionCodes.ADMIN_USERS_VIEW)
 def admin_users_roles_view(request):
     user_model = get_user_model()
@@ -404,6 +415,7 @@ def admin_users_roles_view(request):
     return render(request, "elections/admin/users_roles.html", context)
 
 
+@login_required
 @require_permission(PermissionCodes.ADMIN_ROLE_ASSIGN)
 def admin_user_role_assign_view(request):
     if request.method != "POST":
@@ -433,6 +445,7 @@ def admin_user_role_assign_view(request):
     return redirect("admin_users_roles")
 
 
+@login_required
 @require_permission(PermissionCodes.ADMIN_USERS_VIEW)
 def admin_role_permissions_view(request):
     roles = Role.objects.prefetch_related("role_permissions__permission").order_by("code")
@@ -469,6 +482,7 @@ def admin_role_permissions_view(request):
     return render(request, "elections/admin/role_permissions.html", context)
 
 
+@login_required
 @require_permission(PermissionCodes.ADMIN_PERMISSION_ASSIGN)
 def admin_role_permission_assign_view(request):
     if request.method != "POST":
@@ -512,6 +526,7 @@ def admin_role_permission_assign_view(request):
     return redirect("admin_role_permissions")
 
 
+@login_required
 @require_permission(PermissionCodes.ELECTION_DRAFT_VIEW)
 def admin_draft_elections_view(request):
     drafts = (
@@ -536,6 +551,7 @@ def admin_draft_elections_view(request):
     return render(request, "elections/admin/draft_elections.html", context)
 
 
+@login_required
 @require_permission(PermissionCodes.ADMIN_ELECTION_LIFECYCLE)
 def admin_election_lifecycle_action_view(request):
     if request.method != "POST":

@@ -10,31 +10,33 @@
 
     <p>Witaj na stronie głównej aplikacji.</p>
 
-    <h3>Dostępne sekcje:</h3>
-    <ul>
-        {% if request|has_app_permission:"candidate.read" %}
-            <li><a href="{% url 'candidates_list' %}">Kandydaci</a></li>
-        {% endif %}
-        {% if request|has_app_permission:"candidate.create" %}
-            <li><a href="{% url 'candidate_create' %}">Dodaj kandydata</a></li>
-        {% endif %}
-        {% if request|has_app_permission:"committee.read" %}
-            <li><a href="{% url 'committees_list' %}">Komitety wyborcze</a></li>
-        {% endif %}
-        {% if request|has_app_permission:"election.read" %}
-            <li><a href="{% url 'elections_list' %}">Wybory</a></li>
-            <li><a href="{% url 'calendar' %}">Kalendarz</a></li>
-        {% endif %}
-        {% if request|has_app_permission:"election.create" %}
-            <li><a href="{% url 'election_create' %}">Dodaj wybory</a></li>
-        {% endif %}
-        {% if request|has_app_permission:"voting.cast" %}
-            <li><a href="{% url 'vote_cast' %}">Oddaj głos</a></li>
-        {% endif %}
-        {% if request|has_app_permission:"result.read" %}
-            <li><a href="{% url 'results_list' %}">Wyniki głosowania</a></li>
-        {% endif %}
-    </ul>
+    {% if request.user.is_authenticated %}
+        <h3>Dostępne sekcje:</h3>
+        <ul>
+            {% if request|has_app_permission:"candidate.read" %}
+                <li><a href="{% url 'candidates_list' %}">Kandydaci</a></li>
+            {% endif %}
+            {% if request|has_app_permission:"candidate.create" %}
+                <li><a href="{% url 'candidate_create' %}">Dodaj kandydata</a></li>
+            {% endif %}
+            {% if request|has_app_permission:"committee.read" %}
+                <li><a href="{% url 'committees_list' %}">Komitety wyborcze</a></li>
+            {% endif %}
+            {% if request|has_app_permission:"election.read" %}
+                <li><a href="{% url 'elections_list' %}">Wybory</a></li>
+                <li><a href="{% url 'calendar' %}">Kalendarz</a></li>
+            {% endif %}
+            {% if request|has_app_permission:"election.create" %}
+                <li><a href="{% url 'election_create' %}">Dodaj wybory</a></li>
+            {% endif %}
+            {% if request|has_app_permission:"voting.cast" %}
+                <li><a href="{% url 'vote_cast' %}">Oddaj głos</a></li>
+            {% endif %}
+            {% if request|has_app_permission:"result.read" %}
+                <li><a href="{% url 'results_list' %}">Wyniki głosowania</a></li>
+            {% endif %}
+        </ul>
+    {% endif %}
 
     <h3>Konto użytkownika:</h3>
     {% if request.user.is_authenticated %}
