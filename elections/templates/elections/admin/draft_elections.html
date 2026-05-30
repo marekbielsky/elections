@@ -36,7 +36,19 @@
                         <td>{{ election.id }}</td>
                         <td>{{ election.name }}</td>
                         <td>{{ election.election_type }}</td>
-                        <td>{{ election.status }}</td>
+                        <td>
+                            {% if election.status == 'DRAFT' %}
+                                Szkic
+                            {% elif election.status == 'PUBLISHED' %}
+                                Opublikowane
+                            {% elif election.status == 'IN_PROGRESS' %}
+                                W trakcie
+                            {% elif election.status == 'CLOSED' %}
+                                Zamknięte
+                            {% else %}
+                                {{ election.status }}
+                            {% endif %}
+                        </td>
                         <td>{{ election.schedule_start|date:"Y-m-d H:i" }}</td>
                         <td>{{ election.schedule_end|date:"Y-m-d H:i" }}</td>
                         <td>

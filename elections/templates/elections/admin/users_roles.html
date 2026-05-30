@@ -46,9 +46,9 @@
                                 {% csrf_token %}
                                 <input type="hidden" name="user_id" value="{{ user.id }}">
                                 <select name="role">
-                                    <option value="ADMIN" {% if user.role == 'ADMIN' %}selected{% endif %}>ADMIN</option>
-                                    <option value="USER" {% if user.role == 'USER' %}selected{% endif %}>USER</option>
-                                    <option value="AUDITOR" {% if user.role == 'AUDITOR' %}selected{% endif %}>AUDITOR</option>
+                                    <option value="ADMIN" {% if user.role == 'ADMIN' %}selected{% endif %}>Administrator</option>
+                                    <option value="USER" {% if user.role == 'USER' %}selected{% endif %}>Użytkownik</option>
+                                    <option value="AUDITOR" {% if user.role == 'AUDITOR' %}selected{% endif %}>Audytor</option>
                                 </select>
                                 <button type="submit">Zapisz</button>
                             </form>

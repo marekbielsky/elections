@@ -19,15 +19,29 @@ from .services import ElectionLifecycleService
 
 class UserRegistrationForm(UserCreationForm):
     email = forms.EmailField(required=True, label="E-mail")
+    error_messages = {
+        "password_mismatch": "Podane hasła nie są identyczne.",
+    }
 
     class Meta:
         model = get_user_model()
         fields = ("username", "email", "password1", "password2")
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["username"].label = "Nazwa użytkownika"
+        self.fields["email"].label = "E-mail"
+        self.fields["password1"].label = "Hasło"
+        self.fields["password2"].label = "Powtórz hasło"
+
 
 class UserLoginForm(AuthenticationForm):
     username = forms.CharField(label="Nazwa użytkownika")
     password = forms.CharField(label="Hasło", widget=forms.PasswordInput)
+    error_messages = {
+        "invalid_login": "Wprowadź poprawną nazwę użytkownika i hasło.",
+        "inactive": "To konto jest nieaktywne.",
+    }
 
 
 class ElectionCreateForm(forms.Form):

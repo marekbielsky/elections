@@ -66,7 +66,17 @@
                 {% for event in calendar_events %}
                     <tr>
                         <td>{{ event.event_at }}</td>
-                        <td>{{ event.event_type }}</td>
+                        <td>
+                            {% if event.event_type == "ELECTION_START" %}
+                                Rozpoczęcie wyborów
+                            {% elif event.event_type == "ELECTION_END" %}
+                                Zakończenie wyborów
+                            {% elif event.event_type == "RESULTS_PUBLISH" %}
+                                Publikacja wyników
+                            {% else %}
+                                {{ event.event_type }}
+                            {% endif %}
+                        </td>
                         <td>{{ event.election_name }}</td>
                         <td>{{ event.election_type }}</td>
                         <td>{{ event.organizational_unit_name }}</td>
@@ -94,7 +104,17 @@
                     <tr>
                         <td>{{ reminder.hours_until_event }}</td>
                         <td>{{ reminder.event_at }}</td>
-                        <td>{{ reminder.event_type }}</td>
+                        <td>
+                            {% if reminder.event_type == "ELECTION_START" %}
+                                Rozpoczęcie wyborów
+                            {% elif reminder.event_type == "ELECTION_END" %}
+                                Zakończenie wyborów
+                            {% elif reminder.event_type == "RESULTS_PUBLISH" %}
+                                Publikacja wyników
+                            {% else %}
+                                {{ reminder.event_type }}
+                            {% endif %}
+                        </td>
                         <td>{{ reminder.election_name }}</td>
                     </tr>
                 {% endfor %}
