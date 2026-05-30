@@ -3,8 +3,12 @@ import os
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 
 from elections.models import (
+    Election,
+    ElectionCandidate,
+    ElectionSchedule,
     ElectionStatus,
     ElectionType,
     OrganizationalUnit,
@@ -13,6 +17,8 @@ from elections.models import (
     Role,
     RolePermission,
     UserRole,
+    VotingEligibility,
+    VotingRule,
 )
 
 
@@ -47,9 +53,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("Tryb local bez --with-demo: utworzono tylko dane referencyjne."))
         else:
             self._seed_local_demo_data()
+            self._seed_prod_elections_and_candidates()
             self.stdout.write(
                 self.style.SUCCESS(
-                    "Zseedowano dane dla produkcji: słowniki referencyjne oraz podstawowe dane użytkowników/komitetów/polityków."
+                    "Zseedowano dane dla produkcji: słowniki referencyjne, użytkowników/komitety/polityków oraz kandydatury."
                 )
             )
 
@@ -377,3 +384,82 @@ class Command(BaseCommand):
         person.student_or_employee_no = identifier
         person.organizational_unit = organizational_unit
         person.save()
+
+    def _seed_prod_elections_and_candidates(self):
+        draft_status = ElectionStatus.objects.get(code="DRAFT")
+        country_unit = OrganizationalUnit.objects.filter(name="Rzeczpospolita Polska").first()
+        now = timezone.now()
+        politicians = list(
+            Person.objects.filter(student_or_employee_no__startswith="PL-POL-").order_by("student_or_employee_no")
+        )
+        if not politicians:
+            return
+
+        election_definitions = [
+            (
+                "Wybory prezydenckie RP (demo)",
+                "PRESIDENTIAL_RP",
+                "Pokazowa elekcja prezydencka do prezentacji listy kandydatów.",
+            ),
+            (
+                "Wybory parlamentarne RP (demo)",
+                "PARLIAMENTARY_RP",
+                "Pokazowa elekcja parlamentarna do prezentacji listy kandydatów.",
+            ),
+            (
+                "Wybory do PE w Polsce (demo)",
+                "EUROPEAN_PARLIAMENT_RP",
+                "Pokazowa elekcja do Parlamentu Europejskiego do prezentacji listy kandydatów.",
+            ),
+        ]
+        for election_name, election_type_code, election_description in election_definitions:
+            election_type = ElectionType.objects.get(code=election_type_code)
+            election, _ = Election.objects.update_or_create(
+                name=election_name,
+                defaults={
+                    "election_type": election_type,
+                    "election_status": draft_status,
+                    "organizational_unit": country_unit,
+                    "description": election_description,
+                    "is_secret": False,
+                },
+            )
+            ElectionSchedule.objects.update_or_create(
+                election=election,
+                defaults={
+                    "start_at": now + timezone.timedelta(days=7),
+                    "end_at": now + timezone.timedelta(days=14),
+                    "results_publish_at": now + timezone.timedelta(days=15),
+                },
+            )
+            VotingRule.objects.update_or_create(
+                election=election,
+                defaults={
+                    "min_choices": 1,
+                    "max_choices": 1,
+                    "allow_blank_vote": False,
+                    "allow_vote_change": False,
+                    "requires_turnout_threshold": False,
+                    "turnout_threshold_percent": None,
+                },
+            )
+            for candidate_number, person in enumerate(politicians, start=1):
+                ElectionCandidate.objects.update_or_create(
+                    election=election,
+                    person=person,
+                    defaults={
+                        "candidate_number": candidate_number,
+                        "campaign_description": "Kandydat demonstracyjny do prezentacji frontendu.",
+                        "is_approved": True,
+                        "approved_at": now,
+                    },
+                )
+                VotingEligibility.objects.update_or_create(
+                    election=election,
+                    person=person,
+                    defaults={
+                        "eligibility_status": VotingEligibility.EligibilityStatus.GRANTED,
+                        "revoked_at": None,
+                        "revocation_reason": "",
+                    },
+                )
