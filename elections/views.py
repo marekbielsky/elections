@@ -196,7 +196,7 @@ def _build_calendar_context(*, request, elections_queryset):
                     "event_type": event_type,
                     "event_at": event_at,
                     "election_name": election.name,
-                    "election_type": election.election_type.code,
+                    "election_type": election.election_type.name,
                     "organizational_unit_name": (
                         election.organizational_unit.name if election.organizational_unit else "Brak"
                     ),
@@ -538,7 +538,7 @@ def admin_draft_elections_view(request):
         {
             "id": election.id,
             "name": election.name,
-            "election_type": election.election_type.code,
+            "election_type": election.election_type.name,
             "status": election.election_status.code,
             "schedule_start": election.schedule.start_at if hasattr(election, "schedule") else None,
             "schedule_end": election.schedule.end_at if hasattr(election, "schedule") else None,
