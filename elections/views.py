@@ -1,6 +1,7 @@
 import secrets
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import get_user_model, login as auth_login, logout as auth_logout
+from django.core.mail import send_mail
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -63,6 +64,19 @@ def register_view(request):
             user = form.save()
             UserRole.objects.get_or_create(user=user, defaults={"role": UserRole.Role.USER})
             _ensure_person_profile(user)
+            if user.email:
+                send_mail(
+                    subject="Witamy w systemie wyborczym",
+                    message=(
+                        f"Cześć {user.username},\n\n"
+                        "Dziękujemy za rejestrację w systemie wyborczym.\n"
+                        "Twoje konto zostało poprawnie utworzone.\n\n"
+                        "Pozdrawiamy,\nZespół systemu wyborczego"
+                    ),
+                    from_email=None,
+                    recipient_list=[user.email],
+                    fail_silently=True,
+                )
             auth_login(request, user)
             return redirect("home")
     else:
